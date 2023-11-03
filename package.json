@@ -1,0 +1,19 @@
+{
+  "name": "hardhat-project",
+  "devDependencies": {
+    "@nomicfoundation/hardhat-foundry": "^1.0.3",
+    "@nomicfoundation/hardhat-toolbox": "^3.0.0",
+    "@openzeppelin/contracts": "^4.9.3",
+    "@openzeppelin/contracts-upgradeable": "^4.9.3",
+    "@openzeppelin/hardhat-upgrades": "^2.1.0",
+    "hardhat": "^2.17.1"
+  },
+  "dependencies": {
+    "@nomiclabs/hardhat-etherscan": "^3.1.7",
+    "@teahousefinance/teavaultv3pair": "^1.0.3",
+    "@uniswap/v3-core": "github:Uniswap/v3-core#0.8",
+    "@uniswap/v3-periphery": "github:Uniswap/v3-periphery#0.8",
+    "dotenv": "^16.3.1",
+    "hardhat-contract-sizer": "^2.10.0"
+  }
+}
