@@ -18,6 +18,43 @@ import "./interface/AAVE/IPool.sol";
 
 //import "hardhat/console.sol";
 
+/// @notice Swapper is a helper contract for sending calls to arbitray swap router
+/// @notice Since there's no need to approve tokens to Swapper, it's safe for Swapper
+/// @notice to call arbitrary contracts.
+contract Swapper {
+
+    using SafeERC20 for IERC20;
+
+    function swap(
+        IERC20 _srcToken,
+        IERC20 _dstToken,
+        uint256 _amountIn,
+        address _swapRouter,
+        bytes calldata _data
+    ) external {
+        _srcToken.approve(_swapRouter, _amountIn);
+        (bool success, bytes memory returndata) = _swapRouter.call(_data);
+        uint256 length = returndata.length;
+        if (!success) {
+            // call failed, propagate revert data
+            assembly ("memory-safe") {
+                revert(add(returndata, 32), length)
+            }
+        }
+
+        // send tokens back to caller
+        uint256 balance = _srcToken.balanceOf(address(this));
+        if (balance > 0) {
+            _srcToken.safeTransfer(msg.sender, balance);
+        }
+
+        balance = _dstToken.balanceOf(address(this));
+        if (balance > 0) {
+            _dstToken.safeTransfer(msg.sender, balance);
+        }
+    }
+}
+
 contract TeaVaultV3PortfolioHelper is ITeaVaultV3PortfolioHelper, Ownable {
 
     using SafeERC20 for IERC20;
@@ -26,27 +63,19 @@ contract TeaVaultV3PortfolioHelper is ITeaVaultV3PortfolioHelper, Ownable {
 
     IWETH9 immutable public weth9;
     IPool immutable public aavePool;
-    mapping (address => bool) public allowedSwapRouters;
+    Swapper immutable public swapper;
     address private vault;
 
     constructor(address _weth9, address _aavePool) {
         weth9 = IWETH9(_weth9);
         aavePool = IPool(_aavePool);
         vault = address(0x1);
+
+        swapper = new Swapper();
     }
 
     receive() external payable onlyInMulticall {
         // allow receiving eth inside multicall
-    }
-
-    /// @inheritdoc ITeaVaultV3PortfolioHelper
-    function setAllowedSwapRouters(address[] calldata _swapRouters, bool[] calldata _enabled) external override onlyOwner {
-        uint256 length = _swapRouters.length;
-        if (length != _enabled.length) revert InconsistentArrayLengths();
-
-        for (uint256 i; i < length; i++) {
-            allowedSwapRouters[_swapRouters[i]] = _enabled[i];
-        }
     }
 
     /// @inheritdoc ITeaVaultV3PortfolioHelper
@@ -352,15 +381,22 @@ contract TeaVaultV3PortfolioHelper is ITeaVaultV3PortfolioHelper, Ownable {
         address _swapRouter,
         bytes calldata _data
     ) external payable onlyInMulticall returns (uint256 convertedAmount) {
-        if (allowedSwapRouters[_swapRouter] != true) revert NotAllowedSwapRouter();
-        IERC20(_srcToken).approve(_swapRouter, _amountInMax);
+        IERC20(_srcToken).safeTransfer(address(swapper), _amountInMax);
         uint256 dstTokenBalanceBefore = IERC20(_dstToken).balanceOf(address(this));
-        (bool success, bytes memory result) = _swapRouter.call(_data);
+        (bool success, bytes memory result) = address(swapper).call(
+            abi.encodeWithSelector(
+                Swapper.swap.selector,
+                IERC20(_srcToken),
+                IERC20(_dstToken),
+                _amountInMax,
+                _swapRouter,
+                _data
+            )
+        );
         if (!success) revert ExecuteSwapFailed(result);
         uint256 dstTokenBalanceAfter = IERC20(_dstToken).balanceOf(address(this));
         convertedAmount = dstTokenBalanceAfter - dstTokenBalanceBefore;
         if (convertedAmount < _amountOutMin) revert InsufficientSwapResult(_amountOutMin, convertedAmount);
-        IERC20(_srcToken).approve(_swapRouter, 0);
     }
 
     /// @inheritdoc ITeaVaultV3PortfolioHelper

@@ -22,6 +22,7 @@ const ATokenABI = [
 module.exports = {
     getQuoteFromLiFi,
     previewDepositV3Portfolio,
+    previewDepositV3PortfolioShares,
     previewWithdrawV3Portfolio,
     previewDepositV3Pair,
     previewWithdrawV3Pair,
@@ -195,11 +196,11 @@ async function previewDepositV3Portfolio(helper, vault, token, amount, slippage 
                 ]
             ));
 
-            estimatedShares = BigInt(quote.estimate.toAmount) * 10n ** BigInt(vaultDecimals - tokenDecimals);
+            estimatedShares = BigInt(quote.estimate.toAmount) * (10n ** BigInt(vaultDecimals)) / (10n ** BigInt(tokenDecimals));
             estimatedComponents[0] = quote.estimate.toAmount;
         }
         else {
-            estimatedShares = BigInt(amount) * 10n ** BigInt(vaultDecimals - tokenDecimals);
+            estimatedShares = BigInt(amount) * (10n ** BigInt(vaultDecimals)) / (10n ** BigInt(tokenDecimals));
             estimatedComponents[0] = amount;
         }
     }
@@ -354,6 +355,152 @@ async function previewDepositV3Portfolio(helper, vault, token, amount, slippage 
         estimatedShares: estimatedShares,
         componentTokens: targetTokens,
         estimatedComponents: estimatedComponents,
+        helper: helper.target,
+        callData: callData,
+        depositIndex: depositIndex,
+    };
+}
+
+
+/// Preview deposit in shares for TeaVaultV3Portfolio
+/// Deposit using base and atomic tokens and automatically convert them into V3Pair and ATokens.
+///
+/// @param helper is a TeaVaultV3PortfolioHelper contract object created using ethers.js v6
+/// @param vault is a TeaVaultV3Portfolio contract object created using ethers.js v6
+/// @parma shares is the amount of shares to deposit
+/// @param slippage is the slippage allowed, default to 0.005 (0.005 means 0.5%)
+/// @param opt is optional parameters for li.fi
+/// @return an object contains the followings
+///   componentTokens is the array of the component token addresses
+///   estimatedComponents is the array of the estimated amount of component tokens
+///   requiredAmounts is the array of the estimated required amounts for each basic/atomic tokens
+///   helper: address of the helper contract
+///   callData: call data to perform the actual deposit process
+///   depositIndex: multicall index of the actual deposit call, can be used in static call to retrive return value of deposit call
+async function previewDepositV3PortfolioShares(helper, vault, shares, slippage = undefined, opt = {}) {
+    const targetTokens = await vault.getAssets();
+    const targetAmounts = await vault.getAssetsBalance();
+    const manager = await vault.manager();
+
+    if (slippage == undefined) {
+        slippage = '0.005';
+    }
+
+    // check if the vault is empty
+    let vaultIsEmpty = true;
+    for (let i = 0; i < targetAmounts.length; i++) {
+        if (targetAmounts[i] != 0n) {
+            vaultIsEmpty = false;
+            break;
+        }
+    }
+
+    let estimatedComponents = new Array(targetAmounts.length);
+    for (let i = 0; i < targetAmounts.length; i++) {
+        estimatedComponents[i] = 0n;
+    }
+
+    let conversionData = [];
+    let flattenAmounts = new Array(targetAmounts.length);
+    for (let i = 0; i < targetAmounts.length; i++) {
+        flattenAmounts[i] = 0n;
+    }
+
+    if (vaultIsEmpty) {
+        // vault is empty, require the same amount of tokens as shares
+        flattenAmounts[0] = BigInt(shares) * (10n ** BigInt(tokenDecimals)) / (10n ** BigInt(vaultDecimals));
+    }
+    else {
+        // estimate composition of composite assets
+        const vaultRead = vault.connect(vault.runner.provider); // get a read-only contract object which can be called statically from any address    
+        let types = new Array(targetAmounts.length);
+        let underlyingAssets = new Array(targetAmounts.length);
+
+        for (let i = 0; i < targetAmounts.length; i++) {
+            if (targetAmounts[i] == 0n) {
+                continue;
+            }
+            
+            const type = await vault.assetType(targetTokens[i]);
+            types[i] = type;
+            if (type == 1n || type == 2n) {
+                flattenAmounts[i] += targetAmounts[i];
+            }
+            else if (type == 3n) {
+                // get token components
+                const v3pair = new ethers.Contract(targetTokens[i], V3PairABI, vault.runner.provider);
+                const assetToken0 = await v3pair.assetToken0();
+                const assetToken1 = await v3pair.assetToken1();
+                // calculate how many tokens required for this component
+                const results = await vaultRead.v3PairWithdraw.staticCall(targetTokens[i], targetAmounts[i], 0, 0, { from: manager });
+                flattenAmounts[targetTokens.indexOf(assetToken0)] += results[0];
+                flattenAmounts[targetTokens.indexOf(assetToken1)] += results[1];
+            }
+            else if (type == 4n) {
+                // get token components
+                const aToken = new ethers.Contract(targetTokens[i], ATokenABI, vault.runner.provider);
+                const underlyingAsset = await aToken.UNDERLYING_ASSET_ADDRESS();
+                underlyingAssets[i] = underlyingAsset;
+                // calculate how many tokens required for this component
+                const results = await vaultRead.aaveWithdraw.staticCall(targetTokens[i], targetAmounts[i], { from: manager });
+                flattenAmounts[targetTokens.indexOf(underlyingAsset)] += results;
+            }
+        }
+
+        const totalSupply = await vault.totalSupply();
+
+        for (let i = 0; i < targetAmounts.length; i++) {
+            estimatedComponents[i] = targetAmounts[i] * shares / totalSupply;
+            flattenAmounts[i] = flattenAmounts[i] * shares / totalSupply;
+        }
+
+        // convert components
+        for (let i = 0; i < estimatedComponents.length; i++) {
+            if (estimatedComponents[i] != 0) {
+                if (types[i] == 3n) {
+                    conversionData.push(helper.interface.encodeFunctionData(
+                        "v3PairDeposit",
+                        [
+                            targetTokens[i],
+                            estimatedComponents[i],
+                            UINT256_MAX,
+                            UINT256_MAX,
+                        ]
+                    ));
+                }
+                else if (types[i] == 4n) {
+                    // get token components
+                    conversionData.push(helper.interface.encodeFunctionData(
+                        "aaveSupply",
+                        [
+                            underlyingAssets[i],
+                            estimatedComponents[i],
+                        ]
+                    ));
+                }
+            }
+        }
+    }
+
+    // deposit
+    depositIndex = conversionData.push(helper.interface.encodeFunctionData("depositMax")) - 1;
+
+    // convert conversions into calldata
+    const callData = helper.interface.encodeFunctionData(
+        "multicall",
+        [
+            VAULT_TYPE_TEAVAULTV3PORTFOLIO,
+            vault.target,
+            targetTokens,
+            flattenAmounts,
+            conversionData,
+        ]
+    );
+
+    return {
+        componentTokens: targetTokens,
+        estimatedComponents: estimatedComponents,
+        requiredAmounts: flattenAmounts,
         helper: helper.target,
         callData: callData,
         depositIndex: depositIndex,
@@ -601,11 +748,11 @@ async function previewDepositV3Pair(helper, vault, token, amount, slippage = '0.
                 ]
             ));
 
-            estimatedShares = BigInt(quote.estimate.toAmount) * 10n ** BigInt(vaultDecimals - tokenDecimals);
+            estimatedShares = BigInt(quote.estimate.toAmount) * (10n ** BigInt(vaultDecimals)) / (10n ** BigInt(tokenDecimals));
             estimatedComponents[0] = quote.estimate.toAmount;
         }
         else {
-            estimatedShares = BigInt(amount) * 10n ** BigInt(vaultDecimals - tokenDecimals);
+            estimatedShares = BigInt(amount) * (10n ** BigInt(vaultDecimals)) / (10n ** BigInt(tokenDecimals));
             estimatedComponents[0] = amount;
         }
     }

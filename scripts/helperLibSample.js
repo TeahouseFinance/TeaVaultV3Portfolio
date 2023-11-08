@@ -300,6 +300,32 @@ async function testDepositV3Portfolio(helper, vault, user, token, amount) {
     console.log("shares minted:", sharesAfter - sharesBefore);
 }
 
+async function testDepositV3PortfolioShares(helper, vault, user, shares) {
+    // preview deposit to TeaVaultV3Portfolio
+    console.log("DepositV3PortfolioShares:");
+    const previewDeposit = await helperLib.previewDepositV3PortfolioShares(helper, vault, shares);
+    console.log(previewDeposit);
+
+    // make a simulated call
+    // simulated call requires approve to work
+    const MockToken = await ethers.getContractFactory("MockToken");
+    for (let i = 0; i < previewDeposit.componentTokens.length; i++) {
+        const token = MockToken.attach(previewDeposit.componentTokens[i]);
+        await token.connect(user).approve(helper.target, UINT256_MAX);
+        console.log(await token.balanceOf(user.address));
+    }
+
+    // actually call data
+    const sharesBefore = await vault.balanceOf(user.address);
+    await user.sendTransaction({
+        to: previewDeposit.helper,
+        data: previewDeposit.callData,
+    });
+    const sharesAfter = await vault.balanceOf(user.address);
+    console.log("shares to mint:", shares);
+    console.log("shares minted:", sharesAfter - sharesBefore);
+}
+
 async function testDepositV3PortfolioEth(helper, vault, user, token, amount) {
     // preview deposit to TeaVaultV3Portfolio
     console.log("DepositV3PortfolioEth:");
@@ -464,6 +490,7 @@ async function main() {
 
     // tests
     await testDepositV3Portfolio(helper, vault, user, token1, ethers.parseEther("10"));
+    await testDepositV3PortfolioShares(helper, vault, user, ethers.parseEther("1"));
     await testDepositV3PortfolioEth(helper, vault, user, token1, ethers.parseEther("10"));
     await testWithdrawV3Portfolio(helper, vault, user, token0, ethers.parseEther("10"));
 
