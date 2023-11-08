@@ -152,6 +152,8 @@ async function deployTeaVaultV3Portfolio() {
         }
     );
 
+    await vault.setAllowedSwapRouters([ test1InchRouter ], [ true ]);
+
     return { owner, manager, user, fee, vault, token0, token1, token2, pathRecommender, assetOracle, aaveOracle, pairOracle, factory }
 }
 
@@ -535,6 +537,26 @@ describe("TeaVaultV3Portfolio", function () {
                 decayFactor: decayFactor,
             };            
             await expect(vault.connect(manager).setFeeConfig(feeConfig))
+            .to.be.revertedWith("Ownable: caller is not the owner");
+        });
+
+        it("Should be able to set allowed swapRouters", async function () {
+            const { vault, token1 } = await helpers.loadFixture(deployTeaVaultV3Portfolio);
+        
+            await vault.setAllowedSwapRouters([ token1.target ], [ true ]);
+            expect(await vault.allowedSwapRouters(token1.target)).to.equal(true);
+
+            await vault.setAllowedSwapRouters([ token1.target ], [ false ]);
+            expect(await vault.allowedSwapRouters(token1.target)).to.equal(false);
+        });
+
+        it("Should not be able to set allowed swapRouters from non-owner", async function () {
+            const { vault, manager, token1 } = await helpers.loadFixture(deployTeaVaultV3Portfolio);
+        
+            await expect(vault.connect(manager).setAllowedSwapRouters([ token1.target ], [ true ]))
+            .to.be.revertedWith("Ownable: caller is not the owner");
+
+            await expect(vault.connect(manager).setAllowedSwapRouters([ token1.target ], [ false ]))
             .to.be.revertedWith("Ownable: caller is not the owner");
         });
     });
@@ -1262,6 +1284,27 @@ describe("TeaVaultV3Portfolio", function () {
             const data = "0x0502b1c5000000000000000000000000a0b86991c6218b36c1d19d4a2e9eb0ce3606eb480000000000000000000000000000000000000000000000000000000002faf080000000000000000000000000000000000000000000000000005b39c7bf3723b40000000000000000000000000000000000000000000000000000000000000080000000000000000000000000000000000000000000000000000000000000000100000000000000003b6d0340b4e16d0168e52d35cacd2c6185b44281ec28c9dccfee7c08";
             await expect(vault.connect(user).executeSwap(token0.target, token1.target, amountIn, test1InchRouter, data))
             .to.be.revertedWithCustomError(vault, "CallerIsNotManager");
+        });
+
+        it("Should not be able to swap assets using not allowed swapRouter", async function () {
+            const { vault, pathRecommender, token0, token1, manager, user } = await helpers.loadFixture(deployTeaVaultV3PortfolioV3Pair);
+
+            const token0Decimals = await token0.decimals();
+            const shares = ethers.parseEther("100");
+            await token0.connect(user).approve(vault.target, UINT256_MAX);                      
+            await vault.connect(user).deposit(shares);
+
+            // convert half of token0 to token1
+            await pathRecommender.setRecommendedPath([ token0.target, token1.target ], [ 500 ]);
+            const amountIn = ethers.parseUnits("50", token0Decimals);
+
+            // disable 1inch router
+            await vault.setAllowedSwapRouters([ test1InchRouter ], [ false ]);
+
+            // data is produced from 1Inch API
+            const data = "0x0502b1c5000000000000000000000000a0b86991c6218b36c1d19d4a2e9eb0ce3606eb480000000000000000000000000000000000000000000000000000000002faf080000000000000000000000000000000000000000000000000005b39c7bf3723b40000000000000000000000000000000000000000000000000000000000000080000000000000000000000000000000000000000000000000000000000000000100000000000000003b6d0340b4e16d0168e52d35cacd2c6185b44281ec28c9dccfee7c08";
+            await expect(vault.connect(manager).executeSwap(token0.target, token1.target, amountIn, test1InchRouter, data))
+            .to.be.revertedWithCustomError(vault, "NotAllowedSwapRouter");
         });
 
         it("Should be able to add and remove liquidity", async function () {

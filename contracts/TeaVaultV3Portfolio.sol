@@ -54,6 +54,7 @@ contract TeaVaultV3Portfolio is
     uint256 public lastCollectPerformanceFee;
     uint256 public highWaterMark;
     uint256 public performanceFeeReserve;
+    mapping (address => bool) public allowedSwapRouters;
 
     /// @custom:oz-upgrades-unsafe-allow constructor
     constructor() {
@@ -152,6 +153,16 @@ contract TeaVaultV3Portfolio is
         assetType[asset] = AssetType.Null;
 
         emit AssetRemoved(address(asset), block.timestamp);
+    }
+
+    /// @inheritdoc ITeaVaultV3Portfolio
+    function setAllowedSwapRouters(address[] calldata _swapRouters, bool[] calldata _enabled) external override onlyOwner {
+        uint256 length = _swapRouters.length;
+        if (length != _enabled.length) revert InconsistentArrayLengths();
+
+        for (uint256 i; i < length; i++) {
+            allowedSwapRouters[_swapRouters[i]] = _enabled[i];
+        }
     }
 
     /// @inheritdoc ITeaVaultV3Portfolio
@@ -660,6 +671,7 @@ contract TeaVaultV3Portfolio is
     ) external override onlyManager nonReentrant returns (
         uint256 convertedAmount
     ) {
+        if (allowedSwapRouters[_swapRouter] != true) revert NotAllowedSwapRouter();
         bytes memory recommendedPath = _checkAndGetRecommendedPath(true, _srcToken, _dstToken);
         uint256 minAmount = simulateSwapViaV3Router(uniswapV3SwapRouter, true, _srcToken, recommendedPath, _inputAmount);
         

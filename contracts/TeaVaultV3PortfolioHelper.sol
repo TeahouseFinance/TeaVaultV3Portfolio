@@ -26,6 +26,7 @@ contract TeaVaultV3PortfolioHelper is ITeaVaultV3PortfolioHelper, Ownable {
 
     IWETH9 immutable public weth9;
     IPool immutable public aavePool;
+    mapping (address => bool) public allowedSwapRouters;
     address private vault;
 
     constructor(address _weth9, address _aavePool) {
@@ -36,6 +37,16 @@ contract TeaVaultV3PortfolioHelper is ITeaVaultV3PortfolioHelper, Ownable {
 
     receive() external payable onlyInMulticall {
         // allow receiving eth inside multicall
+    }
+
+    /// @inheritdoc ITeaVaultV3PortfolioHelper
+    function setAllowedSwapRouters(address[] calldata _swapRouters, bool[] calldata _enabled) external override onlyOwner {
+        uint256 length = _swapRouters.length;
+        if (length != _enabled.length) revert InconsistentArrayLengths();
+
+        for (uint256 i; i < length; i++) {
+            allowedSwapRouters[_swapRouters[i]] = _enabled[i];
+        }
     }
 
     /// @inheritdoc ITeaVaultV3PortfolioHelper
@@ -341,6 +352,7 @@ contract TeaVaultV3PortfolioHelper is ITeaVaultV3PortfolioHelper, Ownable {
         address _swapRouter,
         bytes calldata _data
     ) external payable onlyInMulticall returns (uint256 convertedAmount) {
+        if (allowedSwapRouters[_swapRouter] != true) revert NotAllowedSwapRouter();
         IERC20(_srcToken).approve(_swapRouter, _amountInMax);
         uint256 dstTokenBalanceBefore = IERC20(_dstToken).balanceOf(address(this));
         (bool success, bytes memory result) = _swapRouter.call(_data);

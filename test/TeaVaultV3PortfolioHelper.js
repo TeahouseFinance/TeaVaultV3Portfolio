@@ -266,6 +266,8 @@ async function deployTeaVaultV3PortfolioHelper() {
     const Helper = await ethers.getContractFactory("TeaVaultV3PortfolioHelper");
     const helper = await Helper.deploy(testWeth, testAavePool);
 
+    await helper.setAllowedSwapRouters([ testRouter ], [ true ]);
+
     return { ...results, helper };
 }
 
@@ -317,6 +319,26 @@ describe("TeaVaultV3PortfolioHelper", function () {
             await helpers.setBalance(helper.target, amount);
 
             await expect(helper.connect(user).rescueEth(amount)).to.be.revertedWith("Ownable: caller is not the owner");
+        });
+
+        it("Should be able to set allowed swapRouters", async function () {
+            const { helper, token1 } = await helpers.loadFixture(deployTeaVaultV3PortfolioHelper);
+        
+            await helper.setAllowedSwapRouters([ token1.target ], [ true ]);
+            expect(await helper.allowedSwapRouters(token1.target)).to.equal(true);
+
+            await helper.setAllowedSwapRouters([ token1.target ], [ false ]);
+            expect(await helper.allowedSwapRouters(token1.target)).to.equal(false);
+        });
+
+        it("Should not be able to set allowed swapRouters from non-owner", async function () {
+            const { helper, manager, token1 } = await helpers.loadFixture(deployTeaVaultV3PortfolioHelper);
+        
+            await expect(helper.connect(manager).setAllowedSwapRouters([ token1.target ], [ true ]))
+            .to.be.revertedWith("Ownable: caller is not the owner");
+
+            await expect(helper.connect(manager).setAllowedSwapRouters([ token1.target ], [ false ]))
+            .to.be.revertedWith("Ownable: caller is not the owner");
         });
     });
 
@@ -469,6 +491,88 @@ describe("TeaVaultV3PortfolioHelper", function () {
 
             // should have tokens refunded
             await expect(tx).to.changeTokenBalance(token0, user, -(amounts[0] + swapAmount));
+        });
+
+        it("Should not be able to swap if not in allowed swapRouter", async function() {
+            const { owner, manager, user, helper, vault, pathRecommender, token0, token1 } = await helpers.loadFixture(deployTeaVaultV3PortfolioHelper);
+
+            // set fees
+            const decayFactor = estimateDecayFactor(1n << 127n, 86400 * 180);
+            const feeConfig = {
+                vault: owner.address,
+                entryFee: 1000,
+                exitFee: 2000,
+                performanceFee: 100000,
+                managementFee: 0,
+                decayFactor: decayFactor
+            }
+
+            await vault.setFeeConfig(feeConfig);
+
+            // deposit
+            const token0Decimals = await token0.decimals();
+            const shares = ethers.parseEther("1");
+            const tokens = ethers.parseUnits("1", token0Decimals);
+            await token0.connect(user).approve(vault.target, UINT256_MAX);
+            await vault.connect(user).deposit(shares);
+
+            // convert half of token0 to token1
+            await pathRecommender.setRecommendedPath([ token0.target, token1.target ], [ 500 ]);
+            await vault.connect(manager).uniswapV3SwapViaSwapRouter(
+                true,
+                [ token0.target, token1.target ],
+                [ 500 ],
+                UINT64_MAX,
+                tokens / 2n,
+                0
+            );
+
+            // disable testRouter for helper
+            await helper.setAllowedSwapRouters([ testRouter ], [ false ]);
+
+            // deposit using helper
+            // estimate how much tokens are required
+            await token1.connect(user).approve(vault.target, UINT256_MAX);
+            const shares2 = ethers.parseEther("1000");
+            const amounts = await vault.connect(user).deposit.staticCall(shares2);
+            await token0.connect(user).approve(vault.target, 0);
+            await token1.connect(user).approve(vault.target, 0);
+
+            // swap half of token0 and deposit
+            const totalAmount = amounts[0] * 2n * 101n / 100n;  // slight increase total amount to account for slippage
+            const swapAmount = totalAmount / 2n;
+            const v3Router = new ethers.Contract(testRouter, uniswapRouterABI);
+            const uniswapV3SwapData = v3Router.interface.encodeFunctionData("exactInputSingle", [
+                [ 
+                    token0.target,
+                    token1.target,
+                    500,
+                    helper.target,
+                    UINT64_MAX,
+                    swapAmount,
+                    0n,
+                    0n
+                ]
+            ]);
+            const swapData = helper.interface.encodeFunctionData("swap", [
+                token0.target,
+                token1.target,
+                swapAmount,
+                0n,
+                testRouter,
+                uniswapV3SwapData
+            ]);
+
+            await token0.connect(user).approve(helper.target, totalAmount);
+            const depositData = helper.interface.encodeFunctionData("deposit", [ shares2 ]);
+            await expect(helper.connect(user).multicall(
+                VAULT_TYPE_TEAVAULTV3PORTFOLIO,
+                vault.target,
+                [ token0.target ],
+                [ totalAmount ],
+                [ swapData, depositData ]
+            ))
+            .to.be.revertedWithCustomError(helper, "MulticallFailed");
         });
 
         if (testToken0 == testWeth || testToken1 == testWeth) {
