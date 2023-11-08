@@ -28,6 +28,7 @@ interface ITeaVaultV3PortfolioHelper {
     /// @notice This function converts all msg.value into WETH9, and transfer required token amounts from the caller to the contract,
     /// @notice perform the transactions specified in _data, then refund all remaining ETH and tokens back to the caller.
     /// @notice Only ETH and tokens in _tokens will be refunded. Use refundTokens function to refund other tokens.
+    /// @notice Because it's possible to insert a "transferFrom" function in multicall, DO NOT APPROVE more tokens than required to this contract.
     /// @param _vaultType type of vault
     /// @param _vault address of TeaVaultV3Portfolio vault for this transaction
     /// @param _tokens Address of each token for use in this transaction
