@@ -26,11 +26,6 @@ interface ITeaVaultV3PortfolioHelper {
     error InconsistentArrayLengths();
     error NotAllowedSwapRouter();
 
-    /// @notice Set allowed swapRouter addresses.
-    /// @param _swapRouters array of address to be set for allowed swapRouters
-    /// @param _enabled array of true or false to enable or disable swapRouters
-    function setAllowedSwapRouters(address[] calldata _swapRouters, bool[] calldata _enabled) external;
-
     /// @notice Multicall for TeaVaultV3Portfolio
     /// @notice This function converts all msg.value into WETH9, and transfer required token amounts from the caller to the contract,
     /// @notice perform the transactions specified in _data, then refund all remaining ETH and tokens back to the caller.
@@ -219,6 +214,12 @@ interface ITeaVaultV3PortfolioHelper {
     function refundTokens(
         address[] calldata _tokens
     ) external payable;
+
+    /// @notice Set allowed swapRouter addresses.
+    /// @notice Only owner can call this function.
+    /// @param _swapRouters array of address to be set for allowed swapRouters
+    /// @param _enabled array of true or false to enable or disable swapRouters
+    function setAllowedSwapRouters(address[] calldata _swapRouters, bool[] calldata _enabled) external;
 
     /// @notice Resuce stuck native tokens in the contract, send them to the caller
     /// @notice Only owner can call this function.

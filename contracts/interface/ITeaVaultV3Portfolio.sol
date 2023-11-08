@@ -106,6 +106,7 @@ interface ITeaVaultV3Portfolio {
     function getAssets() external view returns (ERC20Upgradeable[] memory assets);
 
     /// @notice Set allowed swapRouter addresses.
+    /// @notice Only owner can do this
     /// @param _swapRouters array of address to be set for allowed swapRouters
     /// @param _enabled array of true or false to enable or disable swapRouters
     function setAllowedSwapRouters(address[] calldata _swapRouters, bool[] calldata _enabled) external;
