@@ -25,8 +25,6 @@ interface ITeaVaultV3Portfolio {
     error SimulationError();
     error CallerIsNotManager();
     error InvalidShareAmount();
-    error InconsistentArrayLengths();
-    error NotAllowedSwapRouter();
 
     event TeaVaultV3PortCreated(address indexed teaVaultAddress, string indexed name, string indexed symbol);
     event AssetAdded(address indexed asset, uint256 timestamp);
@@ -104,12 +102,6 @@ interface ITeaVaultV3Portfolio {
     /// @notice Get all assets
     /// @return assets All assets
     function getAssets() external view returns (ERC20Upgradeable[] memory assets);
-
-    /// @notice Set allowed swapRouter addresses.
-    /// @notice Only owner can do this
-    /// @param _swapRouters array of address to be set for allowed swapRouters
-    /// @param _enabled array of true or false to enable or disable swapRouters
-    function setAllowedSwapRouters(address[] calldata _swapRouters, bool[] calldata _enabled) external;
 
     /// @notice Get balance of all assets
     /// @return balances Balance of all assets

@@ -373,7 +373,7 @@ async function previewDepositV3Portfolio(helper, vault, token, amount, slippage 
 /// @return an object contains the followings
 ///   componentTokens is the array of the component token addresses
 ///   estimatedComponents is the array of the estimated amount of component tokens
-///   requiredAmounts is the array of the estimated required amounts for each basic/atomic tokens
+///   requiredAmounts is the array of the estimated required amounts for each basic/atomic token
 ///   helper: address of the helper contract
 ///   callData: call data to perform the actual deposit process
 ///   depositIndex: multicall index of the actual deposit call, can be used in static call to retrive return value of deposit call

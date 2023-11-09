@@ -72,6 +72,7 @@ const pathRecommender = loadEnvVar(process.env.PATH_RECOMMENDER, "No PATH_RECOMM
 const assetOracle = loadEnvVar(process.env.ASSET_ORACLE, "No ASSET_ORACLE");
 const aaveATokenOracle = loadEnvVar(process.env.AAVE_A_TOKEN_ORACLE, "No AAVE_A_TOKEN_ORACLE");
 const teaVaultV3PairOracle = loadEnvVar(process.env.TEA_VAULT_V3_PAIT_ORACLE, "No TEA_VAULT_V3_PAIT_ORACLE");
+const swapper = loadEnvVar(process.env.SWAPPER, "No SWAPPER");
 const owner = loadEnvVar(process.env.OWNER, "No OWNER");
 
 
@@ -98,6 +99,7 @@ async function main() {
             assetOracle,
             aaveATokenOracle,
             teaVaultV3PairOracle,
+            swapper,
             owner
         ],
         {

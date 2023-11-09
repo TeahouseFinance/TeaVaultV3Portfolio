@@ -22,6 +22,8 @@ import "./interface/ITeaVaultV3Pair.sol";
 import "./interface/AAVE/IAToken.sol";
 import "./interface/AAVE/IPool.sol";
 
+import "./Swapper.sol";
+
 //import "hardhat/console.sol";
 contract TeaVaultV3Portfolio is
     ITeaVaultV3Portfolio,
@@ -39,7 +41,7 @@ contract TeaVaultV3Portfolio is
     uint256 public PERCENTAGE_MULTIPLIER;
     uint24 public FEE_CAP;
     uint8 internal DECIMALS;
-    
+
     address public manager;
     FeeConfig public feeConfig;
     ERC20Upgradeable[] public assets;
@@ -54,7 +56,7 @@ contract TeaVaultV3Portfolio is
     uint256 public lastCollectPerformanceFee;
     uint256 public highWaterMark;
     uint256 public performanceFeeReserve;
-    mapping (address => bool) public allowedSwapRouters;
+    Swapper public swapper;
 
     /// @custom:oz-upgrades-unsafe-allow constructor
     constructor() {
@@ -76,6 +78,7 @@ contract TeaVaultV3Portfolio is
         IAssetOracle _assetOracle,
         IAssetOracle _aaveATokenOracle,
         IAssetOracle _teaVaultV3PairOracle,
+        Swapper _swapper,
         address _owner
     ) public initializer {
         __UUPSUpgradeable_init();
@@ -96,6 +99,7 @@ contract TeaVaultV3Portfolio is
         assetOracle = _assetOracle;
         aaveATokenOracle = _aaveATokenOracle;
         teaVaultV3PairOracle = _teaVaultV3PairOracle;
+        swapper = _swapper;
 
         _addAsset(_baseAsset, AssetType.Base);
         for (uint256 i; i < _assets.length; i = i + 1) {
@@ -153,16 +157,6 @@ contract TeaVaultV3Portfolio is
         assetType[asset] = AssetType.Null;
 
         emit AssetRemoved(address(asset), block.timestamp);
-    }
-
-    /// @inheritdoc ITeaVaultV3Portfolio
-    function setAllowedSwapRouters(address[] calldata _swapRouters, bool[] calldata _enabled) external override onlyOwner {
-        uint256 length = _swapRouters.length;
-        if (length != _enabled.length) revert InconsistentArrayLengths();
-
-        for (uint256 i; i < length; i++) {
-            allowedSwapRouters[_swapRouters[i]] = _enabled[i];
-        }
     }
 
     /// @inheritdoc ITeaVaultV3Portfolio
@@ -671,19 +665,26 @@ contract TeaVaultV3Portfolio is
     ) external override onlyManager nonReentrant returns (
         uint256 convertedAmount
     ) {
-        if (allowedSwapRouters[_swapRouter] != true) revert NotAllowedSwapRouter();
         bytes memory recommendedPath = _checkAndGetRecommendedPath(true, _srcToken, _dstToken);
         uint256 minAmount = simulateSwapViaV3Router(uniswapV3SwapRouter, true, _srcToken, recommendedPath, _inputAmount);
-        
-        ERC20Upgradeable(_srcToken).approve(_swapRouter, _inputAmount);
+
+        ERC20Upgradeable(_srcToken).safeTransfer(address(swapper), _inputAmount);        
         uint256 dstTokenBalanceBefore = ERC20Upgradeable(_dstToken).balanceOf(address(this));
-        
-        (bool success, bytes memory result) = _swapRouter.call(_data);
+        (bool success, bytes memory result) = address(swapper).call(
+            abi.encodeWithSelector(
+                Swapper.swap.selector,
+                IERC20(_srcToken),
+                IERC20(_dstToken),
+                _inputAmount,
+                _swapRouter,
+                _data
+            )
+        );
         if (!success) revert ExecuteSwapFailed(result);
+
         uint256 dstTokenBalanceAfter = ERC20Upgradeable(_dstToken).balanceOf(address(this));
         convertedAmount = dstTokenBalanceAfter - dstTokenBalanceBefore;
         if (convertedAmount < minAmount) revert InsufficientSwapResult(minAmount, convertedAmount);
-        ERC20Upgradeable(_srcToken).approve(_swapRouter, 0);
 
         emit Swap(msg.sender, _srcToken, _dstToken, _swapRouter, _inputAmount, convertedAmount, block.timestamp);
     }

@@ -116,6 +116,10 @@ async function deployTeaVaultV3Portfolio() {
     const TeaVaultV3PairOracle = await ethers.getContractFactory("TeaVaultV3PairOracle");
     const pairOracle = await TeaVaultV3PairOracle.deploy(token0.target, assetOracle.target);
 
+    // deploy swapper
+    const Swapper = await ethers.getContractFactory("Swapper");
+    const swapper = await Swapper.deploy();
+
     // deploy TeaVaultV3Portfolio
     const TeaVaultV3Portfolio = await ethers.getContractFactory("TeaVaultV3Portfolio", { });
     const decayFactor = estimateDecayFactor(1n << 127n, 86400 * 180);
@@ -145,6 +149,7 @@ async function deployTeaVaultV3Portfolio() {
             assetOracle.target,
             aaveOracle.target,
             pairOracle.target,
+            swapper.target,
             owner.address,
         ],
         { 
@@ -433,12 +438,13 @@ describe("TeaVaultV3PortfolioHelper", function () {
             const totalAmount = amounts[0] * 2n * 101n / 100n;  // slight increase total amount to account for slippage
             const swapAmount = totalAmount / 2n;
             const v3Router = new ethers.Contract(testRouter, uniswapRouterABI);
+            const swapper = await helper.swapper();
             const uniswapV3SwapData = v3Router.interface.encodeFunctionData("exactInputSingle", [
                 [ 
                     token0.target,
                     token1.target,
                     500,
-                    helper.target,
+                    swapper,
                     UINT64_MAX,
                     swapAmount,
                     0n,
@@ -518,12 +524,13 @@ describe("TeaVaultV3PortfolioHelper", function () {
                 const totalAmount = amounts[1] * 2n * 101n / 100n;  // slight increase total amount to account for slippage
                 const swapAmount = totalAmount / 2n;
                 const v3Router = new ethers.Contract(testRouter, uniswapRouterABI);
+                const swapper = await helper.swapper();
                 const uniswapV3SwapData = v3Router.interface.encodeFunctionData("exactInputSingle", [
                     [ 
                         token1.target,
                         token0.target,
                         500,
-                        helper.target,
+                        swapper,
                         UINT64_MAX,
                         swapAmount,
                         0n,
@@ -605,12 +612,13 @@ describe("TeaVaultV3PortfolioHelper", function () {
             const totalAmount = tokens * 101n / 100n;  // slight increase total amount to account for slippage and entry fees
             const swapAmount = totalAmount / 2n;
             const v3Router = new ethers.Contract(testRouter, uniswapRouterABI);
+            const swapper = await helper.swapper();
             const uniswapV3SwapData = v3Router.interface.encodeFunctionData("exactInputSingle", [
                 [ 
                     token0.target,
                     token1.target,
                     500,
-                    helper.target,
+                    swapper,
                     UINT64_MAX,
                     swapAmount,
                     0n,
@@ -686,12 +694,13 @@ describe("TeaVaultV3PortfolioHelper", function () {
             const totalAmount = tokens * 101n / 100n;  // slight increase total amount to account for slippage and entry fees
             const swapAmount = totalAmount / 2n;
             const v3Router = new ethers.Contract(testRouter, uniswapRouterABI);
+            const swapper = await helper.swapper();
             const uniswapV3SwapData = v3Router.interface.encodeFunctionData("exactInputSingle", [
                 [ 
                     token0.target,
                     token1.target,
                     500,
-                    helper.target,
+                    swapper,
                     UINT64_MAX,
                     swapAmount,
                     0n,
@@ -768,12 +777,13 @@ describe("TeaVaultV3PortfolioHelper", function () {
             const totalAmount = tokens * 101n / 100n;  // slight increase total amount to account for slippage and entry fees
             const swapAmount = totalAmount / 2n;
             const v3Router = new ethers.Contract(testRouter, uniswapRouterABI);
+            const swapper = await helper.swapper();
             const uniswapV3SwapData = v3Router.interface.encodeFunctionData("exactInputSingle", [
                 [ 
                     token0.target,
                     token1.target,
                     500,
-                    helper.target,
+                    swapper,
                     UINT64_MAX,
                     swapAmount,
                     0n,
@@ -868,12 +878,13 @@ describe("TeaVaultV3PortfolioHelper", function () {
 
             // convert and swap
             const v3Router = new ethers.Contract(testRouter, uniswapRouterABI);
+            const swapper = await helper.swapper();
             const uniswapV3SwapData = v3Router.interface.encodeFunctionData("exactInputSingle", [
                 [ 
                     token1.target,
                     token0.target,
                     500,
-                    helper.target,
+                    swapper,
                     UINT64_MAX,
                     amounts1,
                     0n,
@@ -967,12 +978,13 @@ describe("TeaVaultV3PortfolioHelper", function () {
 
             // convert and swap
             const v3Router = new ethers.Contract(testRouter, uniswapRouterABI);
+            const swapper = await helper.swapper();
             const uniswapV3SwapData = v3Router.interface.encodeFunctionData("exactInputSingle", [
                 [ 
                     token1.target,
                     token0.target,
                     500,
-                    helper.target,
+                    swapper,
                     UINT64_MAX,
                     amounts1,
                     0n,
@@ -1198,12 +1210,13 @@ describe("TeaVaultV3PortfolioHelper", function () {
             const totalAmount = amounts.depositedAmount0 * 2n * 101n / 100n;  // slight increase total amount to account for slippage
             const swapAmount = totalAmount / 2n;
             const v3Router = new ethers.Contract(testRouter, uniswapRouterABI);
+            const swapper = await helper.swapper();
             const uniswapV3SwapData = v3Router.interface.encodeFunctionData("exactInputSingle", [
                 [ 
                     token0.target,
                     token1.target,
                     500,
-                    helper.target,
+                    swapper,
                     UINT64_MAX,
                     swapAmount,
                     0n,
@@ -1264,12 +1277,13 @@ describe("TeaVaultV3PortfolioHelper", function () {
             const totalAmount = amounts.depositedAmount0 * 2n * 101n / 100n;  // slight increase total amount to account for slippage
             const swapAmount = totalAmount / 2n;
             const v3Router = new ethers.Contract(testRouter, uniswapRouterABI);
+            const swapper = await helper.swapper();
             const uniswapV3SwapData = v3Router.interface.encodeFunctionData("exactInputSingle", [
                 [ 
                     token0.target,
                     token1.target,
                     500,
-                    helper.target,
+                    swapper,
                     UINT64_MAX,
                     swapAmount,
                     0n,
@@ -1336,12 +1350,13 @@ describe("TeaVaultV3PortfolioHelper", function () {
 
             // swap
             const v3Router = new ethers.Contract(testRouter, uniswapRouterABI);
+            const swapper = await helper.swapper();
             const uniswapV3SwapData = v3Router.interface.encodeFunctionData("exactInputSingle", [
                 [ 
                     token1.target,
                     token0.target,
                     500,
-                    helper.target,
+                    swapper,
                     UINT64_MAX,
                     amounts.withdrawnAmount1,
                     0n,
