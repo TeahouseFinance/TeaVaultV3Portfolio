@@ -192,18 +192,34 @@ interface ITeaVaultV3Portfolio {
         uint256 withdrawnAmount1
     );
 
-    /// @notice Swap assets via Uniswap V3 SwapRouter
-    /// @notice Only fund manager can do this
+    /// @notice A helper function for manager to calculate Uniswap V3 swap path
     /// @param _isExactInput Swap mode is exactInput or not
     /// @param _tokens Swap path tokens
     /// @param _fees Swap path fees
-    /// @param _deadline Transaction deadline
-    /// @return amountOutOrIn Amount input/output for exactInput/exactOutput swap
-    /// @param _amountOutOrInTolerance Amount output/input tolerance for exactInput/exactOutput swap
-    function uniswapV3SwapViaSwapRouter(
+    /// @return path Swap path
+    function calculateSwapPath(
         bool _isExactInput,
         address[] calldata _tokens,
-        uint24[] calldata _fees,
+        uint24[] calldata _fees
+    ) external pure returns (
+        bytes memory path
+    );
+
+    /// @notice Swap assets via Uniswap V3 SwapRouter
+    /// @notice Only fund manager can do this
+    /// @param _isExactInput Swap mode is exactInput or not
+    /// @param _srcToken Swap source token
+    /// @param _dstToken Swap destination token
+    /// @param _path Swap path
+    /// @param _deadline Transaction deadline
+    /// @param _amountInOrOut Amount input/output for exactInput/exactOutput swap
+    /// @param _amountOutOrInTolerance Amount output/input tolerance for exactInput/exactOutput swap
+    /// @return amountOutOrIn Swap output/input amount
+    function uniswapV3SwapViaSwapRouter(
+        bool _isExactInput,
+        address _srcToken,
+        address _dstToken,
+        bytes calldata _path,
         uint256 _deadline,
         uint256 _amountInOrOut,
         uint256 _amountOutOrInTolerance
@@ -216,9 +232,9 @@ interface ITeaVaultV3Portfolio {
     /// @param _srcToken Source token
     /// @param _dstToken Destination token
     /// @param _inputAmount Amount of source tokens to swap
-    /// @param _swapRouter swap router
+    /// @param _swapRouter Swap router
     /// @param _data Calldata of swap router
-    /// @return convertedAmount swap output amount
+    /// @return convertedAmount Swap output amount
     function executeSwap(
         address _srcToken,
         address _dstToken,

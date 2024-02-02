@@ -22,22 +22,22 @@ contract AssetOracle is IAssetOracle, Ownable {
         uint8 decimals1;
         bool assetIsToken0;
     }
-
+    // AUDIT: AOE-05C
+    uint256 private constant POW_2_96 = 1 << 96;
     address immutable public baseAsset;
     uint8 private constant DECIMALS = 18;
     mapping (address => PoolInfo[]) public poolInfoChain;
 
     constructor(address _baseAsset) {
         baseAsset = _baseAsset;
-        poolInfoChain[_baseAsset] = new PoolInfo[](1);
-        
-        poolInfoChain[_baseAsset][0] = PoolInfo({
+        // AUDIT: AOE-01C
+        poolInfoChain[_baseAsset].push(PoolInfo({
             pool: IUniswapV3Pool(address(1)),
             twapInterval: 0,
             decimals0: ERC20(_baseAsset).decimals(),
             decimals1: 0,
             assetIsToken0: true
-        });
+        }));
     }
 
     /// @inheritdoc IAssetOracle
@@ -52,10 +52,11 @@ contract AssetOracle is IAssetOracle, Ownable {
 
     /// @inheritdoc IAssetOracle
     function isOracleEnabled(address _asset) external override view returns (bool) {
-        return (poolInfoChain[_asset].length) != 0;
+        return poolInfoChain[_asset].length != 0;
     }
 
-    function enableOracle(address _asset, IUniswapV3Pool[] calldata _pools, uint32[] memory _twapIntervals) external onlyOwner {
+    // AUDIT: AOE-01S
+    function enableOracle(address _asset, IUniswapV3Pool[] calldata _pools, uint32[] calldata _twapIntervals) external onlyOwner {
         if (_pools.length != _twapIntervals.length) revert ConfigLengthMismatch();
         if (_asset == baseAsset) revert BaseAssetCannotBeReenabled();
 
@@ -64,7 +65,8 @@ contract AssetOracle is IAssetOracle, Ownable {
         PoolInfo[] storage _poolInfoChain = poolInfoChain[_asset];
         address token0;
         address token1;
-        for (uint256 i; i < _pools.length; i = i + 1) {
+        // AUDIT: AOE-02C
+        for (uint256 i; i < _pools.length; ) {
             if (_twapIntervals[i] == 0) revert ZeroTwapIntervalNotAllowed();
             token0 = _pools[i].token0();
             token1 = _pools[i].token1();
@@ -74,9 +76,11 @@ contract AssetOracle is IAssetOracle, Ownable {
                 twapInterval: _twapIntervals[i],
                 decimals0: ERC20(token0).decimals(),
                 decimals1: ERC20(token1).decimals(),
-                assetIsToken0: (_asset == token0)
+                assetIsToken0: _asset == token0
             }));
-            _asset = (_asset == token0) ? token1 : token0;
+            _asset = _asset == token0 ? token1 : token0;
+
+            unchecked { i = i + 1; }
         }
         if (token0 != baseAsset && token1 != baseAsset) revert BaseAssetMismatch();
     }
@@ -96,8 +100,10 @@ contract AssetOracle is IAssetOracle, Ownable {
         if (_assets.length != _amounts.length) revert BatchLengthMismatched();
 
         values = new uint256[](_assets.length);
-        for (uint256 i; i < _assets.length; i = i + 1) {
+        // AUDIT: AOE-02C
+        for (uint256 i; i < _assets.length; ) {
             values[i] = _getValue(_assets[i], _amounts[i]);
+            unchecked { i = i + 1; }
         }
     }
 
@@ -114,10 +120,16 @@ contract AssetOracle is IAssetOracle, Ownable {
     ) external override view returns (
         uint256[] memory values
     ) {
+        // AUDIT: AOE-03M
+        if (_assets.length != _amounts.length) revert BatchLengthMismatched();
+        if (_assets.length != _twaps.length) revert BatchLengthMismatched();
+
         values = new uint256[](_assets.length);
 
-        for (uint256 i; i < _assets.length; i = i + 1) {
+        // AUDIT: AOE-02C
+        for (uint256 i; i < _assets.length; ) {
             values[i] = _getValueWithTwap(_assets[i], _amounts[i], _twaps[i]);
+            unchecked { i = i + 1; }
         }
     }
 
@@ -130,8 +142,10 @@ contract AssetOracle is IAssetOracle, Ownable {
     function getBatchTwap(address[] calldata _assets) external override view returns (uint256[] memory prices) {
         prices = new uint256[](_assets.length);
 
-        for (uint256 i; i < _assets.length; i = i + 1) {
+        // AUDIT: AOE-02C
+        for (uint256 i; i < _assets.length; ) {
             prices[i] = _getTwap(poolInfoChain[_assets[i]]);
+            unchecked { i = i + 1; }
         }
     }
 
@@ -152,7 +166,7 @@ contract AssetOracle is IAssetOracle, Ownable {
     }
 
     function _getTwap(PoolInfo[] memory _poolInfoChain) internal view returns (uint256 price) {
-        if ((_poolInfoChain.length) == 0) revert AssetNotEnabled();
+        if (_poolInfoChain.length == 0) revert AssetNotEnabled();
 
         price = 10 ** DECIMALS;
         if (address(_poolInfoChain[0].pool) == address(1)) {
@@ -164,7 +178,8 @@ contract AssetOracle is IAssetOracle, Ownable {
         int56[] memory tickCumulatives;
         uint256 sqrtPriceX96;
         PoolInfo memory _poolInfo;
-        for (uint256 i; i < _poolInfoChain.length; i = i + 1) {
+        // AUDIT: AOE-02C
+        for (uint256 i; i < _poolInfoChain.length; ) {
             _poolInfo = _poolInfoChain[i];
 
             secondsAgo[0] = _poolInfo.twapInterval;
@@ -174,19 +189,21 @@ contract AssetOracle is IAssetOracle, Ownable {
             );
             if (_poolInfo.assetIsToken0) {
                 // (sqrtX96 / 2 ^ 96) ^ 2 * 10 ^ (decimals0 - decimals1) * 10 ^ DECIMALS
-                relativePrice = sqrtPriceX96.mulDiv(sqrtPriceX96, 1 << 96);
+                relativePrice = sqrtPriceX96.mulDiv(sqrtPriceX96, POW_2_96);
                 relativePrice = _poolInfo.decimals0 > _poolInfo.decimals1 ? 
-                    relativePrice.mulDiv(10 ** (DECIMALS + _poolInfo.decimals0 - _poolInfo.decimals1), 1 << 96) :
-                    relativePrice.mulDiv(10 ** DECIMALS, (1 << 96) * 10 ** (_poolInfo.decimals1 - _poolInfo.decimals0));
+                    relativePrice.mulDiv(10 ** (DECIMALS + _poolInfo.decimals0 - _poolInfo.decimals1), POW_2_96) :
+                    relativePrice.mulDiv(10 ** DECIMALS, POW_2_96 * 10 ** (_poolInfo.decimals1 - _poolInfo.decimals0));
             }
             else {
                 // (2 ^ 96 / sqrtX96) ^ 2 * 10 ^ (decimals1 - decimals0) * 10 ^ DECIMALS
-                relativePrice = uint256(1 << 96).mulDiv(1 << 96, sqrtPriceX96);
+                relativePrice = POW_2_96.mulDiv(POW_2_96, sqrtPriceX96);
                 relativePrice = _poolInfo.decimals1 > _poolInfo.decimals0 ? 
                     relativePrice.mulDiv(10 ** (DECIMALS + _poolInfo.decimals1 - _poolInfo.decimals0), sqrtPriceX96) :
                     relativePrice.mulDiv(10 ** DECIMALS, sqrtPriceX96 * 10 ** (_poolInfo.decimals0 - _poolInfo.decimals1));
             }
             price = price.mulDiv(relativePrice, 10 ** DECIMALS);
+
+            unchecked { i = i + 1; }
         }
     }
 }

@@ -114,6 +114,10 @@ async function deployTeaVaultV3Portfolio() {
     const TeaVaultV3PairOracle = await ethers.getContractFactory("TeaVaultV3PairOracle");
     const pairOracle = await TeaVaultV3PairOracle.deploy(token0.target, assetOracle.target);
 
+    // deploy swapper
+    const Swapper = await ethers.getContractFactory("Swapper");
+    const swapper = await Swapper.deploy();
+
     // deploy TeaVaultV3Portfolio
     const TeaVaultV3Portfolio = await ethers.getContractFactory("TeaVaultV3Portfolio", { });
     const decayFactor = estimateDecayFactor(1n << 127n, 86400 * 180);
@@ -143,6 +147,7 @@ async function deployTeaVaultV3Portfolio() {
             assetOracle.target,
             aaveOracle.target,
             pairOracle.target,
+            swapper.target,
             owner.address,
         ],
         { 
@@ -360,7 +365,7 @@ async function testDepositV3PortfolioEth(helper, vault, user, token, amount) {
 async function testWithdrawV3Portfolio(helper, vault, user, token, shares) {
     // preview withdraw from TeaVaultV3Portfolio
     console.log("WithdrawV3Portfolio:");
-    const previewWithdraw = await helperLib.previewWithdrawV3Portfolio(helper, vault.connect(user), shares, token.target);
+    const previewWithdraw = await helperLib.previewWithdrawV3Portfolio(helper, vault.connect(user), shares, '0.0005', token.target);
     console.log(previewWithdraw);
 
     // actually call data
@@ -443,7 +448,59 @@ async function testDepositV3PairEth(helper, vault, user, token, amount) {
 async function testWithdrawV3Pair(helper, vault, user, token, shares) {
     // preview withdraw from TeaVaultV3Pair
     console.log("WithdrawV3Pair:");
-    const previewWithdraw = await helperLib.previewWithdrawV3Pair(helper, vault.connect(user), shares, token.target);
+    const previewWithdraw = await helperLib.previewWithdrawV3Pair(helper, vault.connect(user), shares, '0.0005', token.target);
+    console.log(previewWithdraw);
+
+    // actually call data
+    const tokenBefore = await token.balanceOf(user.address);
+    const balanceBefore = await ethers.provider.getBalance(user.address);
+    await vault.connect(user).approve(helper.target, shares);
+    await user.sendTransaction({
+        to: previewWithdraw.helper,
+        data: previewWithdraw.callData,
+    });
+    const tokenAfter = await token.balanceOf(user.address);
+    const balanceAfter = await ethers.provider.getBalance(user.address);
+
+    console.log("token diff:", tokenAfter - tokenBefore);
+    console.log("eth diff:", balanceAfter - balanceBefore);
+}
+
+async function testDepositV3PairUniV3(helper, vault, router, user, token, amount) {
+    // preview deposit to TeaVaultV3Pair using Uniswap V3
+    console.log("DepositV3PairUniV3:");
+    const previewDeposit = await helperLib.previewDepositV3PairUniV3(helper, vault, router, token.target, amount);
+    console.log(previewDeposit);
+
+    console.log("estimated shares:", previewDeposit.estimatedShares);
+
+    // make a simulated call
+    // simulated call requires approve to work
+    await token.connect(user).approve(helper.target, amount);
+    const results = await user.call({
+        to: previewDeposit.helper,
+        data: previewDeposit.callData,
+    });
+
+    // decode results
+    const decodedResults = helper.interface.decodeFunctionResult("multicall", results);
+    const depositResults = helper.interface.decodeFunctionResult("depositV3PairMax", decodedResults[0][previewDeposit.depositIndex]);
+    console.log("estimated shares deposited:", depositResults.shares);
+
+    // actually call data
+    const sharesBefore = await vault.balanceOf(user.address);
+    await user.sendTransaction({
+        to: previewDeposit.helper,
+        data: previewDeposit.callData,
+    });
+    const sharesAfter = await vault.balanceOf(user.address);
+    console.log("shares minted:", sharesAfter - sharesBefore);
+}
+
+async function testWithdrawV3PairUniV3(helper, vault, router, user, token, shares) {
+    // preview withdraw from TeaVaultV3Pair
+    console.log("WithdrawV3PairUniV3:");
+    const previewWithdraw = await helperLib.previewWithdrawV3PairUniV3(helper, vault.connect(user), router, shares, '0.0005', token.target);
     console.log(previewWithdraw);
 
     // actually call data
@@ -497,6 +554,9 @@ async function main() {
     await testDepositV3Pair(helper, v3pair, user, token1, ethers.parseEther("10"));
     await testDepositV3PairEth(helper, v3pair, user, token1, ethers.parseEther("10"));
     await testWithdrawV3Pair(helper, v3pair, user, token0, ethers.parseEther("10"));
+
+    await testDepositV3PairUniV3(helper, v3pair, testRouter, user, token1, ethers.parseEther("10"))
+    await testWithdrawV3PairUniV3(helper, v3pair, testRouter, user, token0, ethers.parseEther("10"))
 }
 
 main().catch((error) => {

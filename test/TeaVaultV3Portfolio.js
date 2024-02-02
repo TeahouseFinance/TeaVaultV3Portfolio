@@ -157,6 +157,8 @@ async function deployTeaVaultV3Portfolio() {
         }
     );
 
+    await swapper.setAllowedCaller(vault.target, true);
+
     return { owner, manager, user, fee, vault, token0, token1, token2, pathRecommender, assetOracle, aaveOracle, pairOracle, factory }
 }
 
@@ -606,10 +608,12 @@ describe("TeaVaultV3Portfolio", function () {
 
             // convert all token0 to token1
             await pathRecommender.setRecommendedPath([ token0.target, token1.target ], [ 500 ]);
+            const swapPath = await vault.calculateSwapPath(true, [ token0.target, token1.target ], [ 500 ]);
             await vault.connect(manager).uniswapV3SwapViaSwapRouter(
                 true,
-                [ token0.target, token1.target ],
-                [ 500 ],
+                token0.target,
+                token1.target,
+                swapPath,
                 UINT64_MAX,
                 tokens,
                 0
@@ -675,10 +679,12 @@ describe("TeaVaultV3Portfolio", function () {
 
             // convert half of token0 to token1
             await pathRecommender.setRecommendedPath([ token0.target, token1.target ], [ 500 ]);
+            const swapPath = await vault.calculateSwapPath(true, [ token0.target, token1.target ], [ 500 ]);
             await vault.connect(manager).uniswapV3SwapViaSwapRouter(
                 true,
-                [ token0.target, token1.target ],
-                [ 500 ],
+                token0.target,
+                token1.target,
+                swapPath,
                 UINT64_MAX,
                 tokens / 2n,
                 0
@@ -750,10 +756,12 @@ describe("TeaVaultV3Portfolio", function () {
 
             // convert half of token0 to token1
             await pathRecommender.setRecommendedPath([ token0.target, token1.target ], [ 500 ]);
+            const swapPath = await vault.calculateSwapPath(true, [ token0.target, token1.target ], [ 500 ]);
             await vault.connect(manager).uniswapV3SwapViaSwapRouter(
                 true,
-                [ token0.target, token1.target ],
-                [ 500 ],
+                token0.target,
+                token1.target,
+                swapPath,
                 UINT64_MAX,
                 tokens / 2n,
                 0
@@ -911,10 +919,12 @@ describe("TeaVaultV3Portfolio", function () {
 
             // convert half of token0 to token1
             await pathRecommender.setRecommendedPath([ token0.target, token1.target ], [ 500 ]);
+            const swapPath = await vault.calculateSwapPath(true, [ token0.target, token1.target ], [ 500 ]);
             await expect(vault.connect(manager).uniswapV3SwapViaSwapRouter(
                 true,
-                [ token0.target, token1.target ],
-                [ 500 ],
+                token0.target,
+                token1.target,
+                swapPath,
                 UINT64_MAX,
                 tokens / 2n,
                 0
@@ -955,10 +965,12 @@ describe("TeaVaultV3Portfolio", function () {
 
             // convert half of token0 to token1
             await pathRecommender.setRecommendedPath([ token0.target, token1.target ], [ 500 ]);
+            const swapPath = await vault.calculateSwapPath(false, [ token0.target, token1.target ], [ 500 ]);
             await expect(vault.connect(manager).uniswapV3SwapViaSwapRouter(
                 false,
-                [ token0.target, token1.target ],
-                [ 500 ],
+                token0.target,
+                token1.target,
+                swapPath,
                 UINT64_MAX,
                 estimatedToken1Amount,
                 tokens
@@ -985,10 +997,12 @@ describe("TeaVaultV3Portfolio", function () {
 
             // convert half of token0 to token1 using a worse path
             await pathRecommender.setRecommendedPath([ token0.target, token1.target ], [ 500 ]);
+            const swapPath = await vault.calculateSwapPath(true, [ token0.target, token1.target ], [ 10000 ]);
             await expect(vault.connect(manager).uniswapV3SwapViaSwapRouter(
                 true,
-                [ token0.target, token1.target ],
-                [ 10000 ],
+                token0.target,
+                token1.target,
+                swapPath,
                 UINT64_MAX,
                 tokens / 2n,
                 0
@@ -1007,10 +1021,12 @@ describe("TeaVaultV3Portfolio", function () {
 
             // convert half of token0 to token1 using a worse path
             await pathRecommender.setRecommendedPath([ token0.target, token2.target ], [ 500 ]);
+            const swapPath = await vault.calculateSwapPath(true, [ token0.target, token2.target ], [ 500 ]);
             await expect(vault.connect(manager).uniswapV3SwapViaSwapRouter(
                 true,
-                [ token0.target, token2.target ],
-                [ 500 ],
+                token0.target,
+                token2.target,
+                swapPath,
                 UINT64_MAX,
                 tokens / 2n,
                 0
@@ -1029,10 +1045,12 @@ describe("TeaVaultV3Portfolio", function () {
 
             // convert half of token0 to token1 using a worse path
             await pathRecommender.setRecommendedPath([ token0.target, token1.target ], [ 500 ]);
+            const swapPath = await vault.calculateSwapPath(true, [ token0.target, token1.target ], [ 500 ]);
             await expect(vault.connect(user).uniswapV3SwapViaSwapRouter(
                 true,
-                [ token0.target, token1.target ],
-                [ 500 ],
+                token0.target,
+                token1.target,
+                swapPath,
                 UINT64_MAX,
                 tokens / 2n,
                 0
@@ -1054,10 +1072,12 @@ describe("TeaVaultV3Portfolio", function () {
 
             // test in-place swap
             const amountIn = tokens / 2n;
+            const swapPath = await vault.calculateSwapPath(true, [ token0.target, token1.target ], [ 500 ]);
             const amountOut = await vault.connect(manager).uniswapV3SwapViaSwapRouter.staticCall(
                 true,
-                [ token0.target, token1.target ],
-                [ 500 ],
+                token0.target,
+                token1.target,
+                swapPath,
                 UINT64_MAX,
                 amountIn,
                 0
@@ -1110,10 +1130,12 @@ describe("TeaVaultV3Portfolio", function () {
 
             // test in-place swap
             const amountIn = tokens / 2n;
+            const swapPath = await vault.calculateSwapPath(true, [ token0.target, token1.target ], [ 10000 ]);
             const amountOut = await vault.connect(manager).uniswapV3SwapViaSwapRouter.staticCall(
                 true,
-                [ token0.target, token1.target ],
-                [ 10000 ],
+                token0.target,
+                token1.target,
+                swapPath,
                 UINT64_MAX,
                 amountIn,
                 0
@@ -1148,10 +1170,12 @@ describe("TeaVaultV3Portfolio", function () {
 
             // test in-place swap
             const amountIn = tokens / 2n;
+            const swapPath = await vault.calculateSwapPath(true, [ token0.target, token1.target ], [ 3000 ]);
             const amountOut = await vault.connect(manager).uniswapV3SwapViaSwapRouter.staticCall(
                 true,
-                [ token0.target, token1.target ],
-                [ 3000 ],
+                token0.target,
+                token1.target,
+                swapPath,
                 UINT64_MAX,
                 amountIn,
                 0
@@ -1280,10 +1304,12 @@ describe("TeaVaultV3Portfolio", function () {
 
             // convert half of token0 to token1
             await pathRecommender.setRecommendedPath([ token0.target, token1.target ], [ 500 ]);
+            const swapPath = await vault.calculateSwapPath(true, [ token0.target, token1.target ], [ 500 ]);
             await vault.connect(manager).uniswapV3SwapViaSwapRouter(
                 true,
-                [ token0.target, token1.target ],
-                [ 500 ],
+                token0.target,
+                token1.target,
+                swapPath,
                 UINT64_MAX,
                 tokens / 2n,
                 0
@@ -1338,10 +1364,12 @@ describe("TeaVaultV3Portfolio", function () {
 
             // convert half of token0 to token1
             await pathRecommender.setRecommendedPath([ token0.target, token1.target ], [ 500 ]);
+            const swapPath = await vault.calculateSwapPath(true, [ token0.target, token1.target ], [ 500 ]);
             await vault.connect(manager).uniswapV3SwapViaSwapRouter(
                 true,
-                [ token0.target, token1.target ],
-                [ 500 ],
+                token0.target,
+                token1.target,
+                swapPath,
                 UINT64_MAX,
                 tokens / 2n,
                 0
@@ -1364,10 +1392,12 @@ describe("TeaVaultV3Portfolio", function () {
 
             // convert half of token0 to token1
             await pathRecommender.setRecommendedPath([ token0.target, token1.target ], [ 500 ]);
+            const swapPath = await vault.calculateSwapPath(true, [ token0.target, token1.target ], [ 500 ]);
             await vault.connect(manager).uniswapV3SwapViaSwapRouter(
                 true,
-                [ token0.target, token1.target ],
-                [ 500 ],
+                token0.target,
+                token1.target,
+                swapPath,
                 UINT64_MAX,
                 tokens / 2n,
                 0
@@ -1390,10 +1420,12 @@ describe("TeaVaultV3Portfolio", function () {
 
             // convert half of token0 to token1
             await pathRecommender.setRecommendedPath([ token0.target, token1.target ], [ 500 ]);
+            const swapPath = await vault.calculateSwapPath(true, [ token0.target, token1.target ], [ 500 ]);
             await vault.connect(manager).uniswapV3SwapViaSwapRouter(
                 true,
-                [ token0.target, token1.target ],
-                [ 500 ],
+                token0.target,
+                token1.target,
+                swapPath,
                 UINT64_MAX,
                 tokens / 2n,
                 0
@@ -1416,10 +1448,12 @@ describe("TeaVaultV3Portfolio", function () {
 
             // convert half of token0 to token1
             await pathRecommender.setRecommendedPath([ token0.target, token1.target ], [ 500 ]);
+            const swapPath = await vault.calculateSwapPath(true, [ token0.target, token1.target ], [ 500 ]);
             await vault.connect(manager).uniswapV3SwapViaSwapRouter(
                 true,
-                [ token0.target, token1.target ],
-                [ 500 ],
+                token0.target,
+                token1.target,
+                swapPath,
                 UINT64_MAX,
                 tokens / 2n,
                 0
@@ -1628,10 +1662,12 @@ describe("TeaVaultV3Portfolio", function () {
 
             // convert half of token0 to token1
             await pathRecommender.setRecommendedPath([ token0.target, token1.target ], [ 500 ]);
+            const swapPath = await vault.calculateSwapPath(true, [ token0.target, token1.target ], [ 500 ]);
             await vault.connect(manager).uniswapV3SwapViaSwapRouter(
                 true,
-                [ token0.target, token1.target ],
-                [ 500 ],
+                token0.target,
+                token1.target,
+                swapPath,
                 UINT64_MAX,
                 tokens / 2n,
                 0

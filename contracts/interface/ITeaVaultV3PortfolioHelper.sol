@@ -13,6 +13,7 @@ interface ITeaVaultV3PortfolioHelper {
         TeaVaultV3Portfolio
     }
 
+    error InvalidAddress();
     error NestedMulticall();
     error OnlyInMulticall();
     error NotWETH9Vault();
@@ -23,6 +24,8 @@ interface ITeaVaultV3PortfolioHelper {
     error ExecuteSwapFailed(bytes reason);
     error InsufficientSwapResult(uint256 minAmount, uint256 convertedAmount);
     error InvalidVaultType();
+    error InvalidMinOutputLength();
+    error OutputTokenLessThanMinimum(uint256 index, uint256 amount, uint256 minimum);
 
     /// @notice Multicall for TeaVaultV3Portfolio
     /// @notice This function converts all msg.value into WETH9, and transfer required token amounts from the caller to the contract,
@@ -32,6 +35,7 @@ interface ITeaVaultV3PortfolioHelper {
     /// @param _vault address of TeaVaultV3Portfolio vault for this transaction
     /// @param _tokens Address of each token for use in this transaction
     /// @param _amounts Amounts of each token for use in this transaction
+    /// @param _minOutputs Minimum amount of each token in the vault should be returned to the caller (used for slippage check on withdraw)
     /// @param _data array of function call data
     /// @return results function call results
     function multicall(
@@ -39,6 +43,7 @@ interface ITeaVaultV3PortfolioHelper {
         address _vault,
         address[] calldata _tokens,        
         uint256[] calldata _amounts,
+        uint256[] calldata _minOutputs,
         bytes[] calldata _data
     ) external payable returns (bytes[] memory results);
 

@@ -56,9 +56,10 @@ contract AaveATokenOracle is IAssetOracle, Ownable {
         if (_assets.length != _amounts.length) revert BatchLengthMismatched();
         IAssetOracle _baseAssetOracle = baseAssetOracle;
         values = new uint256[](_assets.length);
-
-        for (uint256 i; i < _assets.length; i = i + 1) {
+        // AUDIT: AAT-01C
+        for (uint256 i; i < _assets.length; ) {
             values[i] = _getValue(_baseAssetOracle, _assets[i], _amounts[i]);
+            unchecked { i = i + 1; }
         }
     }
 
@@ -75,11 +76,17 @@ contract AaveATokenOracle is IAssetOracle, Ownable {
     ) external override view returns (
         uint256[] memory values
     ) {
+        // AUDIT: AAT-01M
+        if (_assets.length != _amounts.length) revert BatchLengthMismatched();
+        if (_assets.length != _twaps.length) revert BatchLengthMismatched();
+
         IAssetOracle _baseAssetOracle = baseAssetOracle;
         values = new uint256[](_assets.length);
 
-        for (uint256 i; i < _assets.length; i = i + 1) {
+        // AUDIT: AAT-01C
+        for (uint256 i; i < _assets.length; ) {
             values[i] = _getValueWithTwap(_baseAssetOracle, _assets[i], _amounts[i], _twaps[i]);
+            unchecked { i = i + 1; }
         }
     }
 
@@ -93,8 +100,10 @@ contract AaveATokenOracle is IAssetOracle, Ownable {
         IAssetOracle _baseAssetOracle = baseAssetOracle;
         prices = new uint256[](_assets.length);
 
-        for (uint256 i; i < _assets.length; i = i + 1) {
+        // AUDIT: AAT-01C
+        for (uint256 i; i < _assets.length; ) {
             prices[i] = _getTwap(_baseAssetOracle, _assets[i]);
+            unchecked { i = i + 1; }
         }
     }
 

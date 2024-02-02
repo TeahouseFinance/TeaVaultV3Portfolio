@@ -59,6 +59,8 @@ interface ITeaVaultV3Pair {
         uint128 liquidity;
     }
 
+    function DECIMALS_MULTIPLIER() external view returns (uint256);
+
     /// @notice get asset token0 address
     /// @return token0 token0 address
     function assetToken0() external view returns (address token0);

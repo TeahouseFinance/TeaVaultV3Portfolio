@@ -352,10 +352,12 @@ describe("TeaVaultV3PortfolioHelper", function () {
 
             // convert half of token0 to token1
             await pathRecommender.setRecommendedPath([ token0.target, token1.target ], [ 500 ]);
+            const swapPath = await vault.calculateSwapPath(true, [ token0.target, token1.target ], [ 500 ]);
             await vault.connect(manager).uniswapV3SwapViaSwapRouter(
                 true,
-                [ token0.target, token1.target ],
-                [ 500 ],
+                token0.target,
+                token1.target,
+                swapPath,
                 UINT64_MAX,
                 tokens / 2n,
                 0
@@ -381,6 +383,7 @@ describe("TeaVaultV3PortfolioHelper", function () {
                     amounts[0] + ethers.parseUnits("100", token0Decimals), // add some extra tokens to test refund
                     amounts[1] + ethers.parseUnits("100", token1Decimals), // add some extra tokens to test refund
                 ],
+                [ 0n, 0n, 0n, 0n ],
                 [ depositData ]
             );
 
@@ -417,10 +420,12 @@ describe("TeaVaultV3PortfolioHelper", function () {
 
             // convert half of token0 to token1
             await pathRecommender.setRecommendedPath([ token0.target, token1.target ], [ 500 ]);
+            const swapPath = await vault.calculateSwapPath(true, [ token0.target, token1.target ], [ 500 ]);
             await vault.connect(manager).uniswapV3SwapViaSwapRouter(
                 true,
-                [ token0.target, token1.target ],
-                [ 500 ],
+                token0.target,
+                token1.target,
+                swapPath,
                 UINT64_MAX,
                 tokens / 2n,
                 0
@@ -467,6 +472,7 @@ describe("TeaVaultV3PortfolioHelper", function () {
                 vault.target,
                 [ token0.target ],
                 [ totalAmount ],
+                [ 0n, 0n, 0n, 0n ],
                 [ swapData, depositData ]
             );
 
@@ -503,10 +509,12 @@ describe("TeaVaultV3PortfolioHelper", function () {
 
                 // convert half of token0 to token1
                 await pathRecommender.setRecommendedPath([ token0.target, token1.target ], [ 500 ]);
+                const swapPath = await vault.calculateSwapPath(true, [ token0.target, token1.target ], [ 500 ]);
                 await vault.connect(manager).uniswapV3SwapViaSwapRouter(
                     true,
-                    [ token0.target, token1.target ],
-                    [ 500 ],
+                    token0.target,
+                    token1.target,
+                    swapPath,
                     UINT64_MAX,
                     tokens / 2n,
                     0
@@ -556,6 +564,7 @@ describe("TeaVaultV3PortfolioHelper", function () {
                     vault.target,
                     [ token1.target ],
                     [ 0n ],
+                    [ 0n, 0n, 0n, 0n ],
                     [ swapData, depositData, convertWethData ],
                     { value: totalAmount * 2n },
                 );
@@ -595,10 +604,12 @@ describe("TeaVaultV3PortfolioHelper", function () {
 
             // convert half of token0 to token1
             await pathRecommender.setRecommendedPath([ token0.target, token1.target ], [ 500 ]);
+            const swapPath = await vault.calculateSwapPath(true, [ token0.target, token1.target ], [ 500 ]);
             await vault.connect(manager).uniswapV3SwapViaSwapRouter(
                 true,
-                [ token0.target, token1.target ],
-                [ 500 ],
+                token0.target,
+                token1.target,
+                swapPath,
                 UINT64_MAX,
                 tokens / 2n,
                 0
@@ -641,6 +652,7 @@ describe("TeaVaultV3PortfolioHelper", function () {
                 vault.target,
                 [ token0.target ],
                 [ totalAmount ],
+                [ 0n, 0n, 0n, 0n ],
                 [ swapData, addLiquidityData, depositData ]
             );
 
@@ -673,10 +685,12 @@ describe("TeaVaultV3PortfolioHelper", function () {
 
             // convert half of token0 to token1
             await pathRecommender.setRecommendedPath([ token0.target, token1.target ], [ 500 ]);
+            const swapPath = await vault.calculateSwapPath(true, [ token0.target, token1.target ], [ 500 ]);
             await vault.connect(manager).uniswapV3SwapViaSwapRouter(
                 true,
-                [ token0.target, token1.target ],
-                [ 500 ],
+                token0.target,
+                token1.target,
+                swapPath,
                 UINT64_MAX,
                 tokens / 2n,
                 0
@@ -724,6 +738,7 @@ describe("TeaVaultV3PortfolioHelper", function () {
                 vault.target,
                 [ token0.target ],
                 [ totalAmount ],
+                [ 0n, 0n, 0n, 0n ],
                 [ swapData, addLiquidityData, aaveSupplyData, depositData ]
             );
 
@@ -756,10 +771,12 @@ describe("TeaVaultV3PortfolioHelper", function () {
 
             // convert half of token0 to token1
             await pathRecommender.setRecommendedPath([ token0.target, token1.target ], [ 500 ]);
+            const swapPath = await vault.calculateSwapPath(true, [ token0.target, token1.target ], [ 500 ]);
             await vault.connect(manager).uniswapV3SwapViaSwapRouter(
                 true,
-                [ token0.target, token1.target ],
-                [ 500 ],
+                token0.target,
+                token1.target,
+                swapPath,
                 UINT64_MAX,
                 tokens / 2n,
                 0
@@ -808,6 +825,7 @@ describe("TeaVaultV3PortfolioHelper", function () {
                 vault.target,
                 [ token0.target ],
                 [ totalAmount ],
+                [ 0n, 0n, 0n, 0n ],
                 [ swapData, addLiquidityData, aaveSupplyData, depositData ]
             );
             const sharesAfter = await vault.balanceOf(user.address);
@@ -841,10 +859,12 @@ describe("TeaVaultV3PortfolioHelper", function () {
 
             // convert half of token0 to token1
             await pathRecommender.setRecommendedPath([ token0.target, token1.target ], [ 500 ]);
+            const swapPath = await vault.calculateSwapPath(true, [ token0.target, token1.target ], [ 500 ]);
             await vault.connect(manager).uniswapV3SwapViaSwapRouter(
                 true,
-                [ token0.target, token1.target ],
-                [ 500 ],
+                token0.target,
+                token1.target,
+                swapPath,
                 UINT64_MAX,
                 tokens / 2n,
                 0
@@ -870,7 +890,7 @@ describe("TeaVaultV3PortfolioHelper", function () {
             // estimate amount of tokens withdrawn and converted
             await vault.connect(user).approve(helper.target, shares);
             const results = await helper.connect(user).multicall.staticCall(
-                VAULT_TYPE_TEAVAULTV3PORTFOLIO, vault.target, [], [], [ withdrawData, removeLiquidityData, aaveWithdrawData ]
+                VAULT_TYPE_TEAVAULTV3PORTFOLIO, vault.target, [], [], [ 0n, 0n, 0n, 0n ], [ withdrawData, removeLiquidityData, aaveWithdrawData ]
             );
             const v3PairResults = helper.interface.decodeFunctionResult("v3PairWithdraw", results[1]);
             const aaveResults = helper.interface.decodeFunctionResult("aaveWithdraw", results[2]);
@@ -905,6 +925,7 @@ describe("TeaVaultV3PortfolioHelper", function () {
                 vault.target,
                 [ ],
                 [ ],
+                [ 0n, 0n, 0n, 0n ],
                 [ withdrawData, removeLiquidityData, aaveWithdrawData, swapData ]
             );
 
@@ -941,10 +962,12 @@ describe("TeaVaultV3PortfolioHelper", function () {
 
             // convert half of token0 to token1
             await pathRecommender.setRecommendedPath([ token0.target, token1.target ], [ 500 ]);
+            const swapPath = await vault.calculateSwapPath(true, [ token0.target, token1.target ], [ 500 ]);
             await vault.connect(manager).uniswapV3SwapViaSwapRouter(
                 true,
-                [ token0.target, token1.target ],
-                [ 500 ],
+                token0.target,
+                token1.target,
+                swapPath,
                 UINT64_MAX,
                 tokens / 2n,
                 0
@@ -970,7 +993,7 @@ describe("TeaVaultV3PortfolioHelper", function () {
             // estimate amount of tokens withdrawn and converted
             await vault.connect(user).approve(helper.target, shares);
             const results = await helper.connect(user).multicall.staticCall(
-                VAULT_TYPE_TEAVAULTV3PORTFOLIO, vault.target, [], [], [ withdrawData, removeLiquidityData, aaveWithdrawData ]
+                VAULT_TYPE_TEAVAULTV3PORTFOLIO, vault.target, [], [], [ 0n, 0n, 0n, 0n ], [ withdrawData, removeLiquidityData, aaveWithdrawData ]
             );
             const v3PairResults = helper.interface.decodeFunctionResult("v3PairWithdrawMax", results[1]);
             const aaveResults = helper.interface.decodeFunctionResult("aaveWithdrawMax", results[2]);
@@ -1005,6 +1028,7 @@ describe("TeaVaultV3PortfolioHelper", function () {
                 vault.target,
                 [ ],
                 [ ],
+                [ 0n, 0n, 0n, 0n ],
                 [ withdrawData, removeLiquidityData, aaveWithdrawData, swapData ]
             );
 
@@ -1050,6 +1074,7 @@ describe("TeaVaultV3PortfolioHelper", function () {
                 v3pair.target,
                 [ token0.target, token1.target ],
                 [ amounts.depositedAmount0 + 100n, amounts.depositedAmount1 + 100n ], // add some extra tokens to test refund
+                [ 0n, 0n ],
                 [ depositData ]
             );
             
@@ -1094,6 +1119,7 @@ describe("TeaVaultV3PortfolioHelper", function () {
                 v3pair.target,
                 [ token0.target, token1.target ],
                 [ amounts.depositedAmount0, amounts.depositedAmount1 ], // add some extra tokens to test refund
+                [ 0n, 0n ],
                 [ depositData ]
             );
             const sharesAfter = await v3pair.balanceOf(user.address);
@@ -1158,6 +1184,7 @@ describe("TeaVaultV3PortfolioHelper", function () {
                     v3pair.target,
                     [ token0.target, token1.target ],
                     [ amount0, amount1 ],
+                    [ 0n, 0n ],
                     [ 
                         depositData,
                         convertWethData,
@@ -1239,6 +1266,7 @@ describe("TeaVaultV3PortfolioHelper", function () {
                 v3pair.target,
                 [ token0.target ],
                 [ totalAmount ],
+                [ 0n, 0n ],
                 [ swapData, depositData ]
             );
             
@@ -1307,6 +1335,7 @@ describe("TeaVaultV3PortfolioHelper", function () {
                 v3pair.target,
                 [ token0.target ],
                 [ totalAmount ],
+                [ 0n, 0n ],
                 [ swapData, depositData ]
             );
             const sharesAfter = await v3pair.balanceOf(user.address);
@@ -1382,6 +1411,7 @@ describe("TeaVaultV3PortfolioHelper", function () {
                 v3pair.target,
                 [ ],
                 [ ],
+                [ 0n, 0n ],
                 [ withdrawData, swapData ]
             );
             const sharesAfter = await v3pair.balanceOf(user.address);

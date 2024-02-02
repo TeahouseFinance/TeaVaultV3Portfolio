@@ -5,7 +5,8 @@ pragma solidity =0.8.21;
 
 import "@openzeppelin/contracts/token/ERC20/ERC20.sol";
 import "@openzeppelin/contracts/access/Ownable.sol";
-import "@openzeppelin/contracts-upgradeable/utils/math/MathUpgradeable.sol";
+import "@openzeppelin/contracts/utils/math/Math.sol";
+import "@openzeppelin/contracts/utils/math/SafeCast.sol";
 import "@uniswap/v3-periphery/contracts/libraries/LiquidityAmounts.sol";
 import "@uniswap/v3-core/contracts/libraries/TickMath.sol";
 
@@ -14,7 +15,8 @@ import "../interface/ITeaVaultV3Pair.sol";
 
 //import "hardhat/console.sol";
 contract TeaVaultV3PairOracle is IAssetOracle, Ownable {
-    using MathUpgradeable for uint256;
+    using Math for uint256;
+    using SafeCast for uint256;
 
     struct TeaVaultV3PairInfo {
         address token0;
@@ -26,7 +28,7 @@ contract TeaVaultV3PairOracle is IAssetOracle, Ownable {
 
     address immutable public baseAsset;
     IAssetOracle public baseAssetOracle;
-    uint8 immutable baseAssetOracleDecimals;
+    uint8 immutable private baseAssetOracleDecimals;        // AUDIT: TVP-01S
     uint8 private constant DECIMALS = 18;
     mapping (address => TeaVaultV3PairInfo) public teaVaultV3PairInfo;
 
@@ -80,8 +82,10 @@ contract TeaVaultV3PairOracle is IAssetOracle, Ownable {
         if (_assets.length != _amounts.length) revert BatchLengthMismatched();
 
         values = new uint256[](_assets.length);
-        for (uint256 i; i < _assets.length; i = i + 1) {
+        // AUDIT: TVP-02C
+        for (uint256 i; i < _assets.length; ) {
             values[i] = _getValue(_assets[i], _amounts[i]);
+            unchecked { i = i + 1; }
         }
     }
 
@@ -98,10 +102,16 @@ contract TeaVaultV3PairOracle is IAssetOracle, Ownable {
     ) external override view returns (
         uint256[] memory values
     ) {
+        // AUDIT: TVP-02M
+        if (_assets.length != _amounts.length) revert BatchLengthMismatched();
+        if (_assets.length != _twaps.length) revert BatchLengthMismatched();
+
         values = new uint256[](_assets.length);
 
-        for (uint256 i; i < _assets.length; i = i + 1) {
+        // AUDIT: TVP-02C
+        for (uint256 i; i < _assets.length; ) {
             values[i] = _getValueWithTwap(_assets[i], _amounts[i], _twaps[i]);
+            unchecked { i = i + 1; }
         }
     }
 
@@ -114,8 +124,10 @@ contract TeaVaultV3PairOracle is IAssetOracle, Ownable {
     function getBatchTwap(address[] calldata _assets) external override view returns (uint256[] memory prices) {
         prices = new uint256[](_assets.length);
 
-        for (uint256 i; i < _assets.length; i = i + 1) {
+        // AUDIT: TVP-02C
+        for (uint256 i; i < _assets.length; ) {
             prices[i] = _getTwap(ITeaVaultV3Pair(_assets[i]), teaVaultV3PairInfo[_assets[i]]);
+            unchecked { i = i + 1; }
         }
     }
 
@@ -123,13 +135,13 @@ contract TeaVaultV3PairOracle is IAssetOracle, Ownable {
         TeaVaultV3PairInfo memory _teaVaultV3PairInfo = teaVaultV3PairInfo[_asset];
         return _amount.mulDiv(
             _getTwap(ITeaVaultV3Pair(_asset), _teaVaultV3PairInfo),
-            10 ** (_teaVaultV3PairInfo.decimals)
+            10 ** _teaVaultV3PairInfo.decimals
         );
     }
 
     function _getValueWithTwap(address _asset, uint256 _amount, uint256 _twap) internal view returns (uint256 value) {
         TeaVaultV3PairInfo memory _teaVaultV3PairInfo = teaVaultV3PairInfo[_asset];
-        return _amount.mulDiv(_twap, 10 ** (_teaVaultV3PairInfo.decimals));
+        return _amount.mulDiv(_twap, 10 ** _teaVaultV3PairInfo.decimals);
     }
 
     function _getTwap(
@@ -138,7 +150,7 @@ contract TeaVaultV3PairOracle is IAssetOracle, Ownable {
     ) internal view returns (
         uint256 price
     ) {
-        if (address(_teaVaultV3PairInfo.token0) == address(0)) revert AssetNotEnabled();
+        if (_teaVaultV3PairInfo.token0 == address(0)) revert AssetNotEnabled();
         IAssetOracle _baseAssetOracle = baseAssetOracle;
         uint256 price0 = _teaVaultV3PairInfo.token0 != baseAsset
             ? _baseAssetOracle.getTwap(_teaVaultV3PairInfo.token0)
@@ -146,17 +158,19 @@ contract TeaVaultV3PairOracle is IAssetOracle, Ownable {
         uint256 price1 = _teaVaultV3PairInfo.token1 != baseAsset
             ? _baseAssetOracle.getTwap(_teaVaultV3PairInfo.token1)
             : 10 ** baseAssetOracleDecimals;
-
-        uint160 sqrtPriceX96 = uint160(
-            (_sqrt(uint256(price0) * 10 ** _teaVaultV3PairInfo.token1Decimals) << 96) /
-            _sqrt(uint256(price1) * 10 ** _teaVaultV3PairInfo.token0Decimals)
-        );
+        // AUDIT: TVP-03M
+        uint160 sqrtPriceX96 = (
+            // AUDIT: TVP-01C
+            (Math.sqrt(price0 * 10 ** _teaVaultV3PairInfo.token1Decimals) << 96) /
+            Math.sqrt(price1 * 10 ** _teaVaultV3PairInfo.token0Decimals)
+        ).toUint160();
 
         uint256 token0Balance = _teaVaultV3Pair.getToken0Balance();
         uint256 token1Balance = _teaVaultV3Pair.getToken1Balance();
 
         ITeaVaultV3Pair.Position[] memory allPositions = _teaVaultV3Pair.getAllPositions();
-        for (uint256 i; i < allPositions.length; i = i + 1) {
+        // AUDIT: TVP-02C
+        for (uint256 i; i < allPositions.length; ) {
             // calculate token0 and token1 amount of each position based on converted oracle price
             (uint256 amount0, uint256 amount1) = LiquidityAmounts.getAmountsForLiquidity(
                 sqrtPriceX96,
@@ -167,6 +181,8 @@ contract TeaVaultV3PairOracle is IAssetOracle, Ownable {
 
             token0Balance = token0Balance + amount0;
             token1Balance = token1Balance + amount1;
+
+            unchecked { i = i + 1; }
         }
         (, , uint256 fee0, uint256 fee1) = _teaVaultV3Pair.allPositionInfo();
         token0Balance = token0Balance + fee0;
@@ -180,20 +196,5 @@ contract TeaVaultV3PairOracle is IAssetOracle, Ownable {
             10 ** (DECIMALS + ERC20(address(_teaVaultV3Pair)).decimals()),
             ERC20(address(_teaVaultV3Pair)).totalSupply() * 10 ** baseAssetOracleDecimals
         );
-    }
-
-    // source: v2-core/contracts/libraries/Math.sol
-    // babylonian method (https://en.wikipedia.org/wiki/Methods_of_computing_square_roots#Babylonian_method)
-    function _sqrt(uint y) internal pure returns (uint z) {
-        if (y > 3) {
-            z = y;
-            uint x = y / 2 + 1;
-            while (x < z) {
-                z = x;
-                x = (y / x + x) / 2;
-            }
-        } else if (y != 0) {
-            z = 1;
-        }
     }
 }

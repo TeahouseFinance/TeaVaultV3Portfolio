@@ -36,11 +36,12 @@ contract TeaVaultV3Portfolio is
     using SafeERC20Upgradeable for ERC20Upgradeable;
     using SafeCastUpgradeable for uint256;
     using MathUpgradeable for uint256;
-
-    uint256 public SECONDS_IN_A_YEAR;
-    uint256 public PERCENTAGE_MULTIPLIER;
+    // AUDIT: TVV-08C
+    uint256 constant public SECONDS_IN_A_YEAR = 365 * 24 * 60 * 60;
+    uint256 constant public PERCENTAGE_MULTIPLIER = 1_000_000;      // AUDIT: TVV-01S
+    uint256 constant private DECAT_FACTOR_100_PERCENT = 1 << 128; // AUDIT: TVV-13C
+    uint8 constant internal DECIMALS = 18;
     uint24 public FEE_CAP;
-    uint8 internal DECIMALS;
 
     address public manager;
     FeeConfig public feeConfig;
@@ -85,11 +86,8 @@ contract TeaVaultV3Portfolio is
         __Ownable_init();
         __ReentrancyGuard_init();
         __ERC20_init(_name, _symbol);
-
-        SECONDS_IN_A_YEAR = 365 * 24 * 60 * 60;
-        PERCENTAGE_MULTIPLIER = 1000000;
+  
         FEE_CAP = _feeCap;
-        DECIMALS = 18;
         _assignManager(_manager);
         _setFeeConfig(_feeConfig);
         aavePool = _aavePool;
@@ -101,23 +99,32 @@ contract TeaVaultV3Portfolio is
         teaVaultV3PairOracle = _teaVaultV3PairOracle;
         swapper = _swapper;
 
+        // AUDIT: TVV-02S
+        if (_uniswapV3SwapRouter == address(0)) revert InvalidAddress();
+        if (address(_pathRecommender) == address(0)) revert InvalidAddress();
+        if (address(_assetOracle) == address(0)) revert InvalidAddress();
+        if (address(_swapper) == address(0)) revert InvalidAddress();
+
         _addAsset(_baseAsset, AssetType.Base);
-        for (uint256 i; i < _assets.length; i = i + 1) {
+        for (uint256 i; i < _assets.length; ) {
             _addAsset(_assets[i], _assetTypes[i]);
+            // AUDIT: TVV-10C
+            unchecked { i = i + 1; }
         }
-        
+        // AUDIT: TVV-05M
         if (
             address(_baseAsset) != _assetOracle.getBaseAsset() ||
+            address(_baseAsset) != _aaveATokenOracle.getBaseAsset() ||
             address(_baseAsset) != _teaVaultV3PairOracle.getBaseAsset()
         ) revert IAssetOracle.BaseAssetMismatch();
-
-        transferOwnership(_owner);
+        // AUDIT: TVV-05C
+        _transferOwnership(_owner);
         emit TeaVaultV3PortCreated(address(this), _name, _symbol);
     }
 
     function _authorizeUpgrade(address newImplementation) internal override onlyOwner {}
 
-    function decimals() public override view returns (uint8) {
+    function decimals() public override pure returns (uint8) {
         return DECIMALS;
     }
 
@@ -152,7 +159,10 @@ contract TeaVaultV3Portfolio is
         if (assetType[assets[_index]] == AssetType.Base) revert BaseAssetCannotBeRemoved();
 
         ERC20Upgradeable asset = assets[_index];
-        assets[_index] = assets[assets.length - 1];
+        // AUDIT: TVV-07C
+        if (_index != assets.length - 1) {
+            assets[_index] = assets[assets.length - 1];
+        }
         assets.pop();
         assetType[asset] = AssetType.Null;
 
@@ -181,6 +191,13 @@ contract TeaVaultV3Portfolio is
 
     /// @inheritdoc ITeaVaultV3Portfolio
     function setFeeConfig(FeeConfig calldata _feeConfig) external override onlyOwner {
+        // collecting management and performance fee based on previous config first
+        // to prevent incorrect amount of fee collection after setting new config
+        FeeConfig memory _feeConfigCache = feeConfig;
+        _collectManagementFee(totalSupply(), _feeConfigCache);
+        ERC20Upgradeable[] memory _assets = assets;
+        uint256 totalValue = _calculateAssetsValue(assets, _calculateTotalAmounts(_assets), _getAssetsTwap(_assets));
+        _collectPerformanceFee(totalSupply(), totalValue, _feeConfigCache);
         _setFeeConfig(_feeConfig);
     }
 
@@ -189,7 +206,7 @@ contract TeaVaultV3Portfolio is
         if (_feeConfig.entryFee + _feeConfig.exitFee > FEE_CAP) revert InvalidFeeRate();
         if (_feeConfig.managementFee > FEE_CAP) revert InvalidFeeRate();
         if (_feeConfig.performanceFee > FEE_CAP) revert InvalidFeeRate();
-        if (_feeConfig.decayFactor >= 2 ** 128) revert InvalidFeeRate();
+        if (_feeConfig.decayFactor >= DECAT_FACTOR_100_PERCENT) revert InvalidFeeRate();
 
         feeConfig = _feeConfig;
 
@@ -213,8 +230,9 @@ contract TeaVaultV3Portfolio is
             shareAmounts[0] = _shares.ceilDiv(10 ** (DECIMALS - _assets[0].decimals()));
         }
         else {
-            for (uint256 i; i < assetsLength; i = i + 1) {
+            for (uint256 i; i < assetsLength; ) {
                 shareAmounts[i] = _totalAmounts[i].mulDiv(_shares, _totalShares, _rounding);
+                unchecked { i = i + 1; }
             }
         }
     }
@@ -228,8 +246,9 @@ contract TeaVaultV3Portfolio is
         totalAmounts = new uint256[](assetsLength);
 
         if (totalSupply() != 0) {
-            for (uint256 i; i < assetsLength; i = i + 1) {
+            for (uint256 i; i < assetsLength; ) {
                 totalAmounts[i] = _assets[i].balanceOf(address(this));
+                unchecked { i = i + 1; }
             }
         }
     }
@@ -240,17 +259,17 @@ contract TeaVaultV3Portfolio is
     ) external override checkShares(_shares) nonReentrant returns (
         uint256[] memory depositedAmounts
     ) {
-        uint256 totalShares = totalSupply();
         ERC20Upgradeable[] memory _assets = assets;
         FeeConfig memory _feeConfig = feeConfig;
         depositedAmounts = new uint256[](_assets.length);
-        _collectManagementFee(totalShares, _feeConfig);
+        _collectManagementFee(totalSupply(), _feeConfig);
 
         uint256[] memory totalAmounts = _calculateTotalAmounts(_assets);
         uint256[] memory twaps = _getAssetsTwap(_assets);
         uint256 totalValue = _calculateAssetsValue(_assets, totalAmounts, twaps);
-        _collectPerformanceFee(totalShares, totalValue, _feeConfig);
+        _collectPerformanceFee(totalSupply(), totalValue, _feeConfig);
 
+        uint256 totalShares = totalSupply();
         uint256[] memory shareAmounts = _calculateShareAmounts(_assets, totalAmounts, _shares, totalSupply(), MathUpgradeable.Rounding.Up);
         uint256 depositedValue = _calculateAssetsValue(_assets, shareAmounts, twaps);
         // initialize timestamp
@@ -258,23 +277,20 @@ contract TeaVaultV3Portfolio is
         if (totalShares == 0) {
             lastCollectPerformanceFee = block.timestamp;
         }
-
-        if (totalValue == 0) {
-            highWaterMark = depositedValue;
-        }
-        else {
-            highWaterMark = highWaterMark.mulDiv(totalValue + depositedValue, totalValue);
-        }
-
-        uint256 totalAmount;
+        // AUDIT: TVV-07M
+        highWaterMark = highWaterMark == 0 ? 
+            depositedValue :
+            highWaterMark.mulDiv(totalValue + depositedValue, totalValue);
+        // AUDIT: TVV-12C
+        bool nonZeroAmount;
         bool senderNotVault = msg.sender != _feeConfig.vault;
         uint256 entryFeeAmount;
         uint256[] memory entryFeeAmounts = new uint256[](_assets.length);
         uint256 assetsLength = (totalShares == 0 ? 1 : _assets.length);
-        for (uint256 i; i < assetsLength; i = i + 1) {
+        for (uint256 i; i < assetsLength; ) {
             if (shareAmounts[i] > 0) {
                 _assets[i].safeTransferFrom(msg.sender, address(this), shareAmounts[i]);
-                totalAmount = totalAmount + shareAmounts[i];
+                nonZeroAmount = true;
                 
                 // collect entry fee for users
                 // do not collect entry fee for fee recipient
@@ -286,17 +302,20 @@ contract TeaVaultV3Portfolio is
                     );
 
                     if (entryFeeAmount > 0) {
-                        totalAmount = totalAmount + entryFeeAmount;
                         _assets[i].safeTransferFrom(msg.sender, _feeConfig.vault, entryFeeAmount);
                         entryFeeAmounts[i] = entryFeeAmount;
                     }
                 }
                 depositedAmounts[i] = shareAmounts[i] + entryFeeAmount;
             }
+            unchecked { i = i + 1; }
         }
-        emit EntryFeeCollected(_feeConfig.vault, entryFeeAmounts, block.timestamp);
+        if (senderNotVault) {
+            // AUDIT: TVV-02C
+            emit EntryFeeCollected(_feeConfig.vault, entryFeeAmounts, block.timestamp);
+        }
         // if shares is too low such that no assets is needed, do not mint
-        if (totalAmount == 0) revert InvalidShareAmount();
+        if (!nonZeroAmount) revert InvalidShareAmount();
         _mint(msg.sender, _shares);
 
         emit Deposit(msg.sender, _shares, depositedAmounts, block.timestamp);
@@ -309,11 +328,10 @@ contract TeaVaultV3Portfolio is
         uint256[] memory withdrawnAmounts
     ) {
         if (_shares > balanceOf(msg.sender)) revert InvalidShareAmount();
-        uint256 totalShares = totalSupply();
         ERC20Upgradeable[] memory _assets = assets;
         FeeConfig memory _feeConfig = feeConfig;
 
-        _collectManagementFee(totalShares, _feeConfig);
+        _collectManagementFee(totalSupply(), _feeConfig);
         // collect exit fee in shares
         uint256 collectedShares;
         if (msg.sender != _feeConfig.vault) {
@@ -329,7 +347,7 @@ contract TeaVaultV3Portfolio is
         uint256[] memory totalAmounts = _calculateTotalAmounts(_assets);
         uint256[] memory twaps = _getAssetsTwap(_assets);
         uint256 totalValue = _calculateAssetsValue(_assets, totalAmounts, twaps);
-        _collectPerformanceFee(totalShares, totalValue, _feeConfig);
+        _collectPerformanceFee(totalSupply(), totalValue, _feeConfig);
 
         withdrawnAmounts = _calculateShareAmounts(_assets, totalAmounts, _shares, totalSupply(), MathUpgradeable.Rounding.Down);
         uint256 withdrawnValue = _calculateAssetsValue(_assets, totalAmounts, twaps);
@@ -339,10 +357,11 @@ contract TeaVaultV3Portfolio is
         highWaterMark = highWaterMark.mulDiv(totalValue - withdrawnValue, totalValue);
 
         uint256 assetsLength = _assets.length;
-        for (uint256 i; i < assetsLength; i = i + 1) {
+        for (uint256 i; i < assetsLength; ) {
             if (withdrawnAmounts[i] > 0) {
                 _assets[i].safeTransfer(msg.sender, withdrawnAmounts[i]);
             }
+            unchecked { i = i + 1; }
         }
 
         emit Withdraw(msg.sender, _shares, withdrawnAmounts, block.timestamp);
@@ -409,9 +428,9 @@ contract TeaVaultV3Portfolio is
             if (collectedShares > 0) {
                 performanceFeeReserve -= collectedShares;
                 _transfer(address(this), feeConfig.vault, collectedShares);
-                lastCollectPerformanceFee = block.timestamp;
                 emit PerformanceFeeCollected(feeConfig.vault, collectedShares, block.timestamp);
             }
+            lastCollectPerformanceFee = block.timestamp; // AUDIT: TVV-02M
         }
 
         if (_totalShares != 0) {
@@ -453,7 +472,7 @@ contract TeaVaultV3Portfolio is
         uint256 assetsLength = _assets.length;
         twaps = new uint256[](assetsLength);
 
-        for (uint256 i; i < assetsLength; i = i + 1) {
+        for (uint256 i; i < assetsLength; ) {
             if (assetType[_assets[i]] == AssetType.TeaVaultV3Pair) {
                 twaps[i] = _teaVaultV3PairOracle.getTwap(address(_assets[i]));
             }
@@ -463,6 +482,7 @@ contract TeaVaultV3Portfolio is
             else {
                 twaps[i] = _assetOracle.getTwap(address(_assets[i]));
             }
+            unchecked { i = i + 1; }
         }
     }
 
@@ -488,7 +508,7 @@ contract TeaVaultV3Portfolio is
         uint256 assetsLength = _assets.length;
         values = new uint256[](assetsLength);
 
-        for (uint256 i; i < assetsLength; i = i + 1) {
+        for (uint256 i; i < assetsLength; ) {
             if (assetType[_assets[i]] == AssetType.TeaVaultV3Pair) {
                 values[i] = _teaVaultV3PairOracle.getValueWithTwap(address(_assets[i]), _balances[i], _twaps[i]);
             }
@@ -498,6 +518,7 @@ contract TeaVaultV3Portfolio is
             else {
                 values[i] = _assetOracle.getValueWithTwap(address(_assets[i]), _balances[i], _twaps[i]);
             }
+            unchecked { i = i + 1; }
         }
     }
 
@@ -509,8 +530,9 @@ contract TeaVaultV3Portfolio is
         }
 
         uint256[] memory values = _calculateValueComposition();
-        for (uint256 i; i < values.length; i = i + 1) {
+        for (uint256 i; i < values.length; ) {
             totalValue = totalValue + values[i];
+            unchecked { i = i + 1; }
         }
     }
 
@@ -520,8 +542,9 @@ contract TeaVaultV3Portfolio is
         uint256[] memory _twaps
     ) internal view returns (uint256 value) {
         uint256[] memory values = _calculateValueComposition(_assets, _balances, _twaps);
-        for (uint256 i; i < values.length; i = i + 1) {
+        for (uint256 i; i < values.length; ) {
             value = value + values[i];
+            unchecked { i = i + 1; }
         }   
     }
 
@@ -594,65 +617,76 @@ contract TeaVaultV3Portfolio is
     }
 
     /// @inheritdoc ITeaVaultV3Portfolio
-    function uniswapV3SwapViaSwapRouter(
+    function calculateSwapPath(
         bool _isExactInput,
         address[] calldata _tokens,
-        uint24[] calldata _fees,
-        uint256 _deadline,
-        uint256 _amountInOrOut,
-        uint256 _amountOutOrInTolerance
-    ) external override onlyManager nonReentrant returns (
-        uint256 amountOutOrIn
+        uint24[] calldata _fees
+    ) external pure returns (
+        bytes memory path
     ) {
         address srcToken = _tokens[0];
         address dstToken = _tokens[_tokens.length - 1];
-        bytes memory recommendedPath =_checkAndGetRecommendedPath(_isExactInput, srcToken, dstToken);
-        address _uniswapV3SwapRouter = uniswapV3SwapRouter;
-        uint256 simulatedAmount = simulateSwapViaV3Router(
-            _uniswapV3SwapRouter, _isExactInput, srcToken, recommendedPath, _amountInOrOut
-        );
-
-        bytes memory path = abi.encodePacked(_isExactInput ? srcToken : dstToken);
+        path = abi.encodePacked(_isExactInput ? srcToken : dstToken);
         uint256 feesLength = _fees.length;
-        for (uint256 i; i < feesLength; i = i + 1) {
+        for (uint256 i; i < feesLength; ) {
             path = bytes.concat(
                 path,
                 _isExactInput ? 
                     abi.encodePacked(_fees[i], _tokens[i + 1]) : 
                     abi.encodePacked(_fees[feesLength - i - 1], _tokens[feesLength - i - 1])
             );
+            unchecked { i = i + 1; }
         }
+    }
 
-        ERC20Upgradeable(srcToken).approve(_uniswapV3SwapRouter, type(uint256).max);
+    /// @inheritdoc ITeaVaultV3Portfolio
+    function uniswapV3SwapViaSwapRouter(
+        bool _isExactInput,
+        address _srcToken,
+        address _dstToken,
+        bytes calldata _path, // AUDIT: TVV-04C
+        uint256 _deadline,
+        uint256 _amountInOrOut,
+        uint256 _amountOutOrInTolerance
+    ) external override onlyManager nonReentrant returns (
+        uint256 amountOutOrIn
+    ) {
+        bytes memory recommendedPath =_checkAndGetRecommendedPath(_isExactInput, _srcToken, _dstToken);
+        address _uniswapV3SwapRouter = uniswapV3SwapRouter;
+        uint256 simulatedAmount = simulateSwapViaV3Router(
+            _uniswapV3SwapRouter, _isExactInput, _srcToken, recommendedPath, _amountInOrOut
+        );
+
+        ERC20Upgradeable(_srcToken).approve(_uniswapV3SwapRouter, type(uint256).max);
         if (_isExactInput) {
             if (simulatedAmount > _amountOutOrInTolerance) {
                 _amountOutOrInTolerance = simulatedAmount;
             }
             ISwapRouter.ExactInputParams memory params = ISwapRouter.ExactInputParams({
-                path: path,
+                path: _path,
                 recipient: address(this),
                 deadline: _deadline,
                 amountIn: _amountInOrOut,
                 amountOutMinimum: _amountOutOrInTolerance
             });
             amountOutOrIn = ISwapRouter(_uniswapV3SwapRouter).exactInput(params);
-            emit Swap(msg.sender, srcToken, dstToken, _uniswapV3SwapRouter, _amountInOrOut, amountOutOrIn, block.timestamp);
+            emit Swap(msg.sender, _srcToken, _dstToken, _uniswapV3SwapRouter, _amountInOrOut, amountOutOrIn, block.timestamp);
         }
         else {
             if (simulatedAmount < _amountOutOrInTolerance) {
                 _amountOutOrInTolerance = simulatedAmount;
             }
             ISwapRouter.ExactOutputParams memory params = ISwapRouter.ExactOutputParams({
-                path: path,
+                path: _path,
                 recipient: address(this),
                 deadline: _deadline,
                 amountOut: _amountInOrOut,
                 amountInMaximum: _amountOutOrInTolerance
             });
             amountOutOrIn = ISwapRouter(_uniswapV3SwapRouter).exactOutput(params);
-            emit Swap(msg.sender, srcToken, dstToken, _uniswapV3SwapRouter, amountOutOrIn, _amountInOrOut, block.timestamp);
+            emit Swap(msg.sender, _srcToken, _dstToken, _uniswapV3SwapRouter, amountOutOrIn, _amountInOrOut, block.timestamp);
         }
-        ERC20Upgradeable(srcToken).approve(_uniswapV3SwapRouter, 0);
+        ERC20Upgradeable(_srcToken).approve(_uniswapV3SwapRouter, 0);
     }
 
     /// @inheritdoc ITeaVaultV3Portfolio
@@ -702,23 +736,22 @@ contract TeaVaultV3Portfolio is
         bytes memory _path,
         uint256 _amountInOrOut
     ) internal returns (uint256 amountOutOrIn) {
-        uint256 UINT256_MAX = type(uint256).max;
-        ERC20Upgradeable(_srcToken).approve(_uniswapV3SwapRouter, UINT256_MAX);
+        // AUDIT: TVV-11C
+        ERC20Upgradeable(_srcToken).approve(_uniswapV3SwapRouter, type(uint256).max);
         
         SwapRouterGenericParams memory params = SwapRouterGenericParams({
             path: _path,
             recipient: address(this),
-            deadline: UINT256_MAX,
+            deadline: type(uint256).max,
             amountInOrOut: _amountInOrOut,
-            amountOutOrInTolerance: _isExactInput ? 0 : UINT256_MAX
+            amountOutOrInTolerance: _isExactInput ? 0 : type(uint256).max
         });
 
         (bool success, bytes memory returndata) = address(this).delegatecall(
-            // 0xc04b8d59: bytes4(keccak256( "exactInput((bytes,address,uint256,uint256,uint256))" ))
-            // 0xf28c0498: bytes4(keccak256( "exactOutput((bytes,address,uint256,uint256,uint256))" ))
+            // AUDIT: TVV-01C
             abi.encodeWithSelector(
                 TeaVaultV3Portfolio.simulateSwapViaV3RouterInternal.selector,
-                bytes4(uint32(_isExactInput ? 0xc04b8d59 : 0xf28c0498)),
+                bytes4(uint32(_isExactInput ? ISwapRouter.exactInput.selector : ISwapRouter.exactOutput.selector)),
                 _uniswapV3SwapRouter,
                 params
             )
@@ -809,6 +842,6 @@ contract TeaVaultV3Portfolio is
         if (_shares == 0) revert InvalidShareAmount();
         _;
     }
-
-    uint256[35] private __gap;
+    // AUDIT: TVV-01M
+    uint256[34] private __gap;
 }
