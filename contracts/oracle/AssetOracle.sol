@@ -23,7 +23,9 @@ contract AssetOracle is IAssetOracle, Ownable {
         bool assetIsToken0;
     }
     // AUDIT: AOE-05C
-    uint256 private constant POW_2_96 = 1 << 96;
+    uint256 private constant POW_2_64 = 1 << 64;
+    uint256 private constant POW_2_128 = 1 << 128;
+    uint256 private constant POW_2_192 = 1 << 192;
     address immutable public baseAsset;
     uint8 private constant DECIMALS = 18;
     mapping (address => PoolInfo[]) public poolInfoChain;
@@ -187,19 +189,30 @@ contract AssetOracle is IAssetOracle, Ownable {
             sqrtPriceX96 = TickMath.getSqrtRatioAtTick(
                 int24((tickCumulatives[1] - tickCumulatives[0]) / int64(uint64(_poolInfo.twapInterval)))
             );
-            if (_poolInfo.assetIsToken0) {
-                // (sqrtX96 / 2 ^ 96) ^ 2 * 10 ^ (decimals0 - decimals1) * 10 ^ DECIMALS
-                relativePrice = sqrtPriceX96.mulDiv(sqrtPriceX96, POW_2_96);
-                relativePrice = _poolInfo.decimals0 > _poolInfo.decimals1 ? 
-                    relativePrice.mulDiv(10 ** (DECIMALS + _poolInfo.decimals0 - _poolInfo.decimals1), POW_2_96) :
-                    relativePrice.mulDiv(10 ** DECIMALS, POW_2_96 * 10 ** (_poolInfo.decimals1 - _poolInfo.decimals0));
+            if (_poolInfo.assetIsToken0) { // AUDIT: AOE-02M
+                if (sqrtPriceX96 <= type(uint128).max) {
+                    uint256 priceX192 = uint256(sqrtPriceX96) * sqrtPriceX96;
+                    relativePrice = _poolInfo.decimals0 > _poolInfo.decimals1 ? 
+                        priceX192.mulDiv(10 ** (DECIMALS + _poolInfo.decimals0 - _poolInfo.decimals1), POW_2_192) : 
+                        priceX192.mulDiv(10 ** DECIMALS, POW_2_192) / (10 ** (_poolInfo.decimals1 - _poolInfo.decimals0));
+                }
+                else {
+                    uint256 priceX128 = sqrtPriceX96.mulDiv(sqrtPriceX96, POW_2_64);
+                    relativePrice = _poolInfo.decimals0 > _poolInfo.decimals1 ? 
+                        priceX128.mulDiv(10 ** (DECIMALS + _poolInfo.decimals0 - _poolInfo.decimals1), POW_2_128) : 
+                        priceX128.mulDiv(10 ** DECIMALS, POW_2_128) / (10 ** (_poolInfo.decimals1 - _poolInfo.decimals0));
+                }
             }
             else {
-                // (2 ^ 96 / sqrtX96) ^ 2 * 10 ^ (decimals1 - decimals0) * 10 ^ DECIMALS
-                relativePrice = POW_2_96.mulDiv(POW_2_96, sqrtPriceX96);
                 relativePrice = _poolInfo.decimals1 > _poolInfo.decimals0 ? 
-                    relativePrice.mulDiv(10 ** (DECIMALS + _poolInfo.decimals1 - _poolInfo.decimals0), sqrtPriceX96) :
-                    relativePrice.mulDiv(10 ** DECIMALS, sqrtPriceX96 * 10 ** (_poolInfo.decimals0 - _poolInfo.decimals1));
+                    POW_2_192.mulDiv(10 ** DECIMALS, sqrtPriceX96).mulDiv(
+                        10 ** (_poolInfo.decimals1 - _poolInfo.decimals0),
+                        sqrtPriceX96
+                    ) : 
+                    POW_2_192.mulDiv(
+                        10 ** DECIMALS,
+                        sqrtPriceX96
+                    ) / 10 ** (_poolInfo.decimals0 - _poolInfo.decimals1) / sqrtPriceX96;
             }
             price = price.mulDiv(relativePrice, 10 ** DECIMALS);
 

@@ -58,6 +58,10 @@ relativePrice.mulDiv(10 ** DECIMALS, sqrtPriceX96 * 10 ** (_poolInfo.decimals0 -
 ```
 could be problematic if 10 ** (_poolInfo.decimals0 - _poolInfo.decimals1) is very large but since sqrtPriceX96 is up to 160 bits, this allows up to 28 digits differences in decimals, which should be enough for most cases.
 
+##### Update
+
+Updated as recommended.
+
 #### AOE-03M: Inexistent Validation of Array Lengths
 
 Updated as recommended.
@@ -100,6 +104,10 @@ Updated as recommended.
 
 Calculating share price and deposit cost is performed before deposit, hence user will not over-approve in this process.
 
+##### Update
+
+We believe it's important for deposit function to mint the exact amount of shares indicated by the user, so the design of the function is that it returns the amounts of each asset token required to mint the amount of shares. So, the proper procedure is to use static call to simulate deposit function to calculate the amounts of each asset token required, approve each token for appropriate amounts, then actually call deposit function to deposit.
+
 #### TVV-04M: Improper Order of Performance Fee Evaluation
 
 The performance fee mechanism is designed to incentivize long-term performance. Therefore, the performance fees earned will not be unlocked immediately, but will be unlocked exponentially by time. If we re-order the statements here, some of the newly generated performance fees will be immediately unlocked which is unexpected.
@@ -114,6 +122,10 @@ Updated as recommended.
 2. Only the owner can perform this operation and balance check is a sanity check to ensure users don't suffer unexpected losses after asset removal.
 3. Manager can always convert asset to be removed to another asset before removal.
 Based on the above points, we decide to retain the functionality of dynamically adjusting the asset list.
+
+##### Update
+
+We add a function `swapAndRemoveAsset` which will convert asset to be removed into other supported asset before removal.
 
 #### TVV-07M: Potential Hijack of High Water Mark Initialization
 

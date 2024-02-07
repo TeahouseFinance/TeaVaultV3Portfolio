@@ -99,6 +99,24 @@ interface ITeaVaultV3Portfolio {
     /// @param _index Asset index
     function removeAsset(uint256 _index) external;
 
+    /// @notice Swap assets via swap router and remove asset
+    /// @notice Only owner can do this
+    /// @param _index Asset index
+    /// @param _dstToken Destination token
+    /// @param _inputAmount Amount of source tokens to swap
+    /// @param _swapRouter Swap router
+    /// @param _data Calldata of swap router
+    /// @return convertedAmount Swap output amount
+    function swapAndRemoveAsset(
+        uint256 _index,
+        address _dstToken,
+        uint256 _inputAmount,
+        address _swapRouter,
+        bytes calldata _data
+    ) external returns (
+        uint256 convertedAmount
+    );
+
     /// @notice Get all assets
     /// @return assets All assets
     function getAssets() external view returns (ERC20Upgradeable[] memory assets);

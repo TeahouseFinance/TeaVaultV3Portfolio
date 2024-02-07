@@ -154,7 +154,25 @@ contract TeaVaultV3Portfolio is
     }
 
     /// @inheritdoc ITeaVaultV3Portfolio
-    function removeAsset(uint256 _index) external override onlyOwner {
+    function removeAsset(uint256 _index) external override nonReentrant onlyOwner {
+        _removeAsset(_index);
+    }
+
+    /// @inheritdoc ITeaVaultV3Portfolio
+    function swapAndRemoveAsset( // AUDIT: TVV-06M
+        uint256 _index,
+        address _dstToken,
+        uint256 _inputAmount,
+        address _swapRouter,
+        bytes calldata _data
+    ) external override nonReentrant onlyOwner returns (
+        uint256 convertedAmount
+    ) {
+        convertedAmount = _executeSwap(address(assets[_index]), _dstToken, _inputAmount, _swapRouter, _data);
+        _removeAsset(_index);
+    }
+
+    function _removeAsset(uint256 _index) internal {
         if (assets[_index].balanceOf(address(this)) != 0) revert AssetBalanceNotZero();
         if (assetType[assets[_index]] == AssetType.Base) revert BaseAssetCannotBeRemoved();
 
@@ -697,6 +715,18 @@ contract TeaVaultV3Portfolio is
         address _swapRouter,
         bytes calldata _data
     ) external override onlyManager nonReentrant returns (
+        uint256 convertedAmount
+    ) {
+        return _executeSwap(_srcToken, _dstToken, _inputAmount, _swapRouter, _data);
+    }
+
+    function _executeSwap(
+        address _srcToken,
+        address _dstToken,
+        uint256 _inputAmount,
+        address _swapRouter,
+        bytes calldata _data
+    ) internal returns (
         uint256 convertedAmount
     ) {
         bytes memory recommendedPath = _checkAndGetRecommendedPath(true, _srcToken, _dstToken);
