@@ -24,6 +24,7 @@ interface ITeaVaultV3Portfolio {
     error InvalidSwapTokens();
     error SimulationError();
     error CallerIsNotManager();
+    error CallerIsNotManagerNorOwner();
     error InvalidShareAmount();
 
     event TeaVaultV3PortCreated(address indexed teaVaultAddress, string indexed name, string indexed symbol);
@@ -88,31 +89,33 @@ interface ITeaVaultV3Portfolio {
     /// @return numAssets number of assets
     function getNumberOfAssets() external view returns (uint256 numAssets);
 
-    /// @notice Add AssetType.Atomic or AssetType.Composite asset
+    /// @notice Add non-base asset
     /// @notice Only the owner can do this
     /// @param _asset Asset address
     /// @param _assetType Asset AssetType
     function addAsset(ERC20Upgradeable _asset, AssetType _assetType) external;
 
-    /// @notice Remove AssetType.Atomic or AssetType.Composite asset
+    /// @notice Remove non-base asset
+    /// @notice If asset is atomic asset, its balance must be zero.
+    /// @notice If asset is composite asset (TeaVaultV3Pair or AToken), it will withdraw all remaining balances before removing.
     /// @notice Only the owner can do this
     /// @param _index Asset index
     function removeAsset(uint256 _index) external;
 
-    /// @notice Swap assets via swap router and remove asset
+    /// @notice Swap all tokens of an asset via UniswapV3 and remove asset
     /// @notice Only owner can do this
     /// @param _index Asset index
     /// @param _dstToken Destination token
-    /// @param _inputAmount Amount of source tokens to swap
-    /// @param _swapRouter Swap router
-    /// @param _data Calldata of swap router
+    /// @param _path Swap path
+    /// @param _deadline Transaction deadline
+    /// @param _amountOutTolerance Amount output tolerance for exactInput swap
     /// @return convertedAmount Swap output amount
     function swapAndRemoveAsset(
         uint256 _index,
         address _dstToken,
-        uint256 _inputAmount,
-        address _swapRouter,
-        bytes calldata _data
+        bytes calldata _path,
+        uint256 _deadline,
+        uint256 _amountOutTolerance
     ) external returns (
         uint256 convertedAmount
     );

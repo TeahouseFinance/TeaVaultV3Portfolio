@@ -7,17 +7,12 @@ import "@openzeppelin/contracts/access/Ownable.sol";
 
 contract UniswapV3PathRecommender is Ownable {
 
-    enum UniswapV3AmountFixed {
-        ExactInput,
-        ExactOutput
-    }
-    
     error TokensFeesLengthMismatch();
     // AUDIT: UVP-03C
     event SwapPathSet(address indexed srcToken, address indexed dstToken, bytes pathExactInput, bytes pathExactOutput);
     event SwapPathDeleted(address indexed srcToken, address indexed dstToken);
     // AUDIT: UVP-01C, UVP-05C
-    mapping(address => mapping(address => mapping(UniswapV3AmountFixed => bytes))) private _swapPath;
+    mapping(address => mapping(address => mapping(bool => bytes))) private _swapPath;
 
     function setRecommendedPath(
         address[] calldata _tokens,
@@ -57,20 +52,18 @@ contract UniswapV3PathRecommender is Ownable {
             }
         }
 
-        _swapPath[srcToken][dstToken][UniswapV3AmountFixed.ExactInput] = pathExactInput;
-        _swapPath[srcToken][dstToken][UniswapV3AmountFixed.ExactOutput] = pathExactOutput;
+        _swapPath[srcToken][dstToken][true] = pathExactInput;
+        _swapPath[srcToken][dstToken][false] = pathExactOutput;
         emit SwapPathSet(srcToken, dstToken, pathExactInput, pathExactOutput);
     }
 
     function getRecommendedPath(bool _isExactInput, address _srcToken, address _dstToken) external view returns (bytes memory path) {
-        return _isExactInput ?
-            _swapPath[_srcToken][_dstToken][UniswapV3AmountFixed.ExactInput] :
-            _swapPath[_srcToken][_dstToken][UniswapV3AmountFixed.ExactOutput];
+        return _swapPath[_srcToken][_dstToken][_isExactInput];
     }
 
     function deleteRecommendedPath(address _srcToken, address _dstToken) external onlyOwner {
-        delete _swapPath[_srcToken][_dstToken][UniswapV3AmountFixed.ExactInput];
-        delete _swapPath[_srcToken][_dstToken][UniswapV3AmountFixed.ExactOutput];
+        delete _swapPath[_srcToken][_dstToken][true];
+        delete _swapPath[_srcToken][_dstToken][false];
         emit SwapPathDeleted(_srcToken, _dstToken);
     }
 }

@@ -120,8 +120,12 @@ async function deployTeaVaultV3Portfolio() {
     const Swapper = await ethers.getContractFactory("Swapper");
     const swapper = await Swapper.deploy();
 
+    // deploy library
+    const AssetsHelper = await ethers.getContractFactory("AssetsHelper");
+    const assetsHelper = await AssetsHelper.deploy();
+
     // deploy TeaVaultV3Portfolio
-    const TeaVaultV3Portfolio = await ethers.getContractFactory("TeaVaultV3Portfolio", { });
+    const TeaVaultV3Portfolio = await ethers.getContractFactory("TeaVaultV3Portfolio", { libraries: { AssetsHelper: assetsHelper.target }});
     const decayFactor = estimateDecayFactor(1n << 127n, 86400 * 180);
     const feeCap = 999999;
     const feeConfig = {
@@ -154,6 +158,7 @@ async function deployTeaVaultV3Portfolio() {
         ],
         { 
             kind: "uups",
+            unsafeAllowLinkedLibraries: true,
             unsafeAllow: [ 'delegatecall' ],
         }
     );

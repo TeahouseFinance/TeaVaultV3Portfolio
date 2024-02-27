@@ -35,7 +35,7 @@ contract Swapper is Ownable {
         bytes calldata _data
     ) external {
         // AUDIT: SRE-01M
-        if (_swapRouter == address(0)) revert InvalidAddress();
+        if (!Address.isContract(_swapRouter)) revert InvalidAddress();
         // AUDIT: SRE-02M
         if (!allowedCallers[msg.sender]) revert NotAllowedCaller();
 

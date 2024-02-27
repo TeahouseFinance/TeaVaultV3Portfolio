@@ -22,6 +22,8 @@ import "./interface/ITeaVaultV3Pair.sol";
 import "./interface/AAVE/IAToken.sol";
 import "./interface/AAVE/IPool.sol";
 
+import "./library/AssetsHelper.sol";
+
 import "./Swapper.sol";
 
 //import "hardhat/console.sol";
@@ -38,8 +40,8 @@ contract TeaVaultV3Portfolio is
     using MathUpgradeable for uint256;
     // AUDIT: TVV-08C
     uint256 constant public SECONDS_IN_A_YEAR = 365 * 24 * 60 * 60;
-    uint256 constant public PERCENTAGE_MULTIPLIER = 1_000_000;      // AUDIT: TVV-01S
-    uint256 constant private DECAT_FACTOR_100_PERCENT = 1 << 128; // AUDIT: TVV-13C
+    uint256 constant public PERCENTAGE_MULTIPLIER = 100_0000;      // AUDIT: TVV-01S
+    uint256 constant private DECAY_FACTOR_100_PERCENT = 1 << 128; // AUDIT: TVV-13C
     uint8 constant internal DECIMALS = 18;
     uint24 public FEE_CAP;
 
@@ -134,7 +136,7 @@ contract TeaVaultV3Portfolio is
     }
 
     /// @inheritdoc ITeaVaultV3Portfolio
-    function addAsset(ERC20Upgradeable _asset, AssetType _assetType) external override onlyOwner {
+    function addAsset(ERC20Upgradeable _asset, AssetType _assetType) external override nonReentrant onlyOwner {
         _addAsset(_asset, _assetType);
     }
 
@@ -155,6 +157,21 @@ contract TeaVaultV3Portfolio is
 
     /// @inheritdoc ITeaVaultV3Portfolio
     function removeAsset(uint256 _index) external override nonReentrant onlyOwner {
+        ERC20Upgradeable _assetToken = assets[_index];
+        uint256 _balance = _assetToken.balanceOf(address(this));
+        if (_balance > 0) {
+            // still has remaining balance, try to withdraw
+            if (assetType[_assetToken] == AssetType.TeaVaultV3Pair) {
+                ITeaVaultV3Pair _v3Pair = ITeaVaultV3Pair(address(_assetToken));
+                _v3Pair.withdraw(_balance, 0, 0);
+            }
+            else if (assetType[_assetToken] == AssetType.AToken) {
+                IAToken _aToken = IAToken(address(_assetToken));
+                address _underlyingToken = _aToken.UNDERLYING_ASSET_ADDRESS();
+                aavePool.withdraw(_underlyingToken, _balance, address(this));
+            }
+        }
+
         _removeAsset(_index);
     }
 
@@ -162,13 +179,23 @@ contract TeaVaultV3Portfolio is
     function swapAndRemoveAsset( // AUDIT: TVV-06M
         uint256 _index,
         address _dstToken,
-        uint256 _inputAmount,
-        address _swapRouter,
-        bytes calldata _data
+        bytes calldata _path,
+        uint256 _deadline,
+        uint256 _amountOutTolerance
     ) external override nonReentrant onlyOwner returns (
         uint256 convertedAmount
     ) {
-        convertedAmount = _executeSwap(address(assets[_index]), _dstToken, _inputAmount, _swapRouter, _data);
+        IERC20Upgradeable _srcToken = assets[_index];
+        uint256 _inputAmount = _srcToken.balanceOf(address(this));
+        convertedAmount = _uniswapV3SwapViaSwapRouter(
+            true,
+            address(_srcToken),
+            _dstToken,
+            _path,
+            _deadline,
+            _inputAmount,
+            _amountOutTolerance
+        );
         _removeAsset(_index);
     }
 
@@ -208,7 +235,7 @@ contract TeaVaultV3Portfolio is
     }
 
     /// @inheritdoc ITeaVaultV3Portfolio
-    function setFeeConfig(FeeConfig calldata _feeConfig) external override onlyOwner {
+    function setFeeConfig(FeeConfig calldata _feeConfig) external override nonReentrant onlyOwner {
         // collecting management and performance fee based on previous config first
         // to prevent incorrect amount of fee collection after setting new config
         FeeConfig memory _feeConfigCache = feeConfig;
@@ -216,6 +243,7 @@ contract TeaVaultV3Portfolio is
         ERC20Upgradeable[] memory _assets = assets;
         uint256 totalValue = _calculateAssetsValue(assets, _calculateTotalAmounts(_assets), _getAssetsTwap(_assets));
         _collectPerformanceFee(totalSupply(), totalValue, _feeConfigCache);
+
         _setFeeConfig(_feeConfig);
     }
 
@@ -224,7 +252,7 @@ contract TeaVaultV3Portfolio is
         if (_feeConfig.entryFee + _feeConfig.exitFee > FEE_CAP) revert InvalidFeeRate();
         if (_feeConfig.managementFee > FEE_CAP) revert InvalidFeeRate();
         if (_feeConfig.performanceFee > FEE_CAP) revert InvalidFeeRate();
-        if (_feeConfig.decayFactor >= DECAT_FACTOR_100_PERCENT) revert InvalidFeeRate();
+        if (_feeConfig.decayFactor >= DECAY_FACTOR_100_PERCENT) revert InvalidFeeRate();
 
         feeConfig = _feeConfig;
 
@@ -439,8 +467,8 @@ contract TeaVaultV3Portfolio is
         uint256 timeDiff = block.timestamp - lastCollectPerformanceFee;
         if (performanceFeeReserve > 0 && timeDiff > 0) {
             collectedShares = performanceFeeReserve.mulDiv(
-                (1 << 128) - power128(feeConfig.decayFactor, timeDiff),
-                1 << 128,
+                DECAY_FACTOR_100_PERCENT - _power128(feeConfig.decayFactor, timeDiff),
+                DECAY_FACTOR_100_PERCENT,
                 MathUpgradeable.Rounding.Up
             );
             if (collectedShares > 0) {
@@ -569,11 +597,7 @@ contract TeaVaultV3Portfolio is
     /// @inheritdoc ITeaVaultV3Portfolio
     function aaveSupply(address _asset, uint256 _amount) external override onlyManager nonReentrant {
         if (assetType[ERC20Upgradeable(_asset)] != AssetType.AToken) revert InvalidAssetType();
-
-        IPool _aavePool = aavePool;
-        address underlyingAsset = IAToken(_asset).UNDERLYING_ASSET_ADDRESS();
-        ERC20Upgradeable(underlyingAsset).approve(address(_aavePool), _amount);
-        _aavePool.supply(underlyingAsset, _amount, address(this), 0);
+        return AssetsHelper.aaveSupply(aavePool, _asset, _amount);
     }
 
     /// @inheritdoc ITeaVaultV3Portfolio
@@ -584,9 +608,7 @@ contract TeaVaultV3Portfolio is
         uint256 withdrawAmount
     ) {
         if (assetType[ERC20Upgradeable(_asset)] != AssetType.AToken) revert InvalidAssetType();
-
-        address underlyingAsset = IAToken(_asset).UNDERLYING_ASSET_ADDRESS();
-        withdrawAmount = aavePool.withdraw(underlyingAsset, _amount, address(this));
+        return AssetsHelper.aaveWithdraw(aavePool, _asset, _amount);
     }
 
     /// @inheritdoc ITeaVaultV3Portfolio
@@ -600,23 +622,9 @@ contract TeaVaultV3Portfolio is
         uint256 depositedAmount1
     ) {
         if (assetType[ERC20Upgradeable(_asset)] != AssetType.TeaVaultV3Pair) revert InvalidAssetType();
-
-        uint256 UINT256_MAX = type(uint256).max;
-        ITeaVaultV3Pair compositeAsset = ITeaVaultV3Pair(_asset);
-        ERC20Upgradeable token0 = ERC20Upgradeable(compositeAsset.assetToken0());
-        ERC20Upgradeable token1 = ERC20Upgradeable(compositeAsset.assetToken1());
-
-        token0.approve(address(compositeAsset), UINT256_MAX);
-        token1.approve(address(compositeAsset), UINT256_MAX);
-        (
-            depositedAmount0,
-            depositedAmount1
-        ) = ITeaVaultV3Pair(_asset).deposit(_shares, _amount0Max, _amount1Max);
-        token0.approve(address(compositeAsset), 0);
-        token1.approve(address(compositeAsset), 0);
+        return AssetsHelper.v3PairDeposit(_asset, _shares, _amount0Max, _amount1Max);
     }
 
-    /// @inheritdoc ITeaVaultV3Portfolio
     function v3PairWithdraw(
         address _asset,
         uint256 _shares,
@@ -627,11 +635,7 @@ contract TeaVaultV3Portfolio is
         uint256 withdrawnAmount1
     ) {
         if (assetType[ERC20Upgradeable(_asset)] != AssetType.TeaVaultV3Pair) revert InvalidAssetType();
-
-        (
-            withdrawnAmount0,
-            withdrawnAmount1
-        ) = ITeaVaultV3Pair(_asset).withdraw(_shares, _amount0Min, _amount1Min);
+        return AssetsHelper.v3PairWithdraw(_asset, _shares, _amount0Min, _amount1Min);
     }
 
     /// @inheritdoc ITeaVaultV3Portfolio
@@ -642,19 +646,7 @@ contract TeaVaultV3Portfolio is
     ) external pure returns (
         bytes memory path
     ) {
-        address srcToken = _tokens[0];
-        address dstToken = _tokens[_tokens.length - 1];
-        path = abi.encodePacked(_isExactInput ? srcToken : dstToken);
-        uint256 feesLength = _fees.length;
-        for (uint256 i; i < feesLength; ) {
-            path = bytes.concat(
-                path,
-                _isExactInput ? 
-                    abi.encodePacked(_fees[i], _tokens[i + 1]) : 
-                    abi.encodePacked(_fees[feesLength - i - 1], _tokens[feesLength - i - 1])
-            );
-            unchecked { i = i + 1; }
-        }
+        return AssetsHelper.calculateSwapPath(_isExactInput, _tokens, _fees);
     }
 
     /// @inheritdoc ITeaVaultV3Portfolio
@@ -669,7 +661,29 @@ contract TeaVaultV3Portfolio is
     ) external override onlyManager nonReentrant returns (
         uint256 amountOutOrIn
     ) {
-        bytes memory recommendedPath =_checkAndGetRecommendedPath(_isExactInput, _srcToken, _dstToken);
+        return _uniswapV3SwapViaSwapRouter(
+            _isExactInput,
+            _srcToken,
+            _dstToken,
+            _path,
+            _deadline,
+            _amountInOrOut,
+            _amountOutOrInTolerance
+        );
+    }
+
+    function _uniswapV3SwapViaSwapRouter(
+        bool _isExactInput,
+        address _srcToken,
+        address _dstToken,
+        bytes calldata _path, // AUDIT: TVV-04C
+        uint256 _deadline,
+        uint256 _amountInOrOut,
+        uint256 _amountOutOrInTolerance
+    ) internal returns (
+        uint256 amountOutOrIn
+    ) {
+        bytes memory recommendedPath = _checkAndGetRecommendedPath(_isExactInput, _srcToken, _dstToken);
         address _uniswapV3SwapRouter = uniswapV3SwapRouter;
         uint256 simulatedAmount = simulateSwapViaV3Router(
             _uniswapV3SwapRouter, _isExactInput, _srcToken, recommendedPath, _amountInOrOut
@@ -715,18 +729,6 @@ contract TeaVaultV3Portfolio is
         address _swapRouter,
         bytes calldata _data
     ) external override onlyManager nonReentrant returns (
-        uint256 convertedAmount
-    ) {
-        return _executeSwap(_srcToken, _dstToken, _inputAmount, _swapRouter, _data);
-    }
-
-    function _executeSwap(
-        address _srcToken,
-        address _dstToken,
-        uint256 _inputAmount,
-        address _swapRouter,
-        bytes calldata _data
-    ) internal returns (
         uint256 convertedAmount
     ) {
         bytes memory recommendedPath = _checkAndGetRecommendedPath(true, _srcToken, _dstToken);
@@ -807,7 +809,7 @@ contract TeaVaultV3Portfolio is
         bytes4 _selector,
         address _uniswapV3SwapRouter,
         SwapRouterGenericParams memory _params
-    ) external onlyManager {
+    ) external onlyManagerOrOwner {
         (bool success, bytes memory returndata) = _uniswapV3SwapRouter.call(abi.encodeWithSelector(_selector, _params));
 
         if (success) {
@@ -834,10 +836,11 @@ contract TeaVaultV3Portfolio is
     }
 
     /// @notice Calculate base ** exp where base is a 128 bits fixed point number (i.e. 1 << 128 means 1).
+    /// @notice (DECAY_FACTOR_100_PERCENT is set to 1 << 128).
     /// @notice This function assumes base < (1 << 128), but does not verify to save gas.
     /// @notice Caller is responsible for making sure that base is within range.
-    function power128(uint256 base, uint256 exp) internal pure returns (uint256 result) {
-        result = 1 << 128;
+    function _power128(uint256 base, uint256 exp) internal pure returns (uint256 result) {
+        result = DECAY_FACTOR_100_PERCENT;
 
         unchecked {
             while(exp > 0) {
@@ -862,6 +865,14 @@ contract TeaVaultV3Portfolio is
      */
     modifier onlyManager() {
         if (msg.sender != manager) revert CallerIsNotManager();
+        _;
+    }
+
+    /**
+     * @dev Throws if called by any account other than the manager.
+     */
+    modifier onlyManagerOrOwner() {
+        if (msg.sender != owner() && msg.sender != manager) revert CallerIsNotManagerNorOwner();
         _;
     }
 

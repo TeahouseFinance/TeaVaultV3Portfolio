@@ -119,8 +119,12 @@ async function deployTeaVaultV3Portfolio() {
     const Swapper = await ethers.getContractFactory("Swapper");
     const swapper = await Swapper.deploy();
 
+    // deploy library
+    const AssetsHelper = await ethers.getContractFactory("AssetsHelper");
+    const assetsHelper = await AssetsHelper.deploy();
+
     // deploy TeaVaultV3Portfolio
-    const TeaVaultV3Portfolio = await ethers.getContractFactory("TeaVaultV3Portfolio", { });
+    const TeaVaultV3Portfolio = await ethers.getContractFactory("TeaVaultV3Portfolio", { libraries: { AssetsHelper: assetsHelper.target } });
     const decayFactor = estimateDecayFactor(1n << 127n, 86400 * 180);
     const feeCap = 999999;
     const feeConfig = {
@@ -153,6 +157,7 @@ async function deployTeaVaultV3Portfolio() {
         ],
         { 
             kind: "uups",
+            unsafeAllowLinkedLibraries: true,
             unsafeAllow: [ 'delegatecall' ],
         }
     );
@@ -394,6 +399,44 @@ describe("TeaVaultV3Portfolio", function () {
             expect(await vault.assetType(token1.target)).to.equal(0n);
         });
 
+        it("Should be able to swap and remove atomic asset", async function () {
+            const { vault, pathRecommender, token0, token1, manager, user } = await helpers.loadFixture(deployTeaVaultV3Portfolio);
+
+            const token0Decimals = await token0.decimals();
+            const shares = ethers.parseEther("1");
+            const tokens = ethers.parseUnits("1", token0Decimals);
+            await token0.connect(user).approve(vault.target, UINT256_MAX);                      
+            await vault.connect(user).deposit(shares);
+
+            // convert half of token0 to token1
+            await pathRecommender.setRecommendedPath([ token0.target, token1.target ], [ 500 ]);
+            let swapPath = await vault.calculateSwapPath(true, [ token0.target, token1.target ], [ 500 ]);
+            await vault.connect(manager).uniswapV3SwapViaSwapRouter(
+                true,
+                token0.target,
+                token1.target,
+                swapPath,
+                UINT64_MAX,
+                tokens / 2n,
+                0
+            );
+        
+            // swap token1 to token0 and remove token1
+            await pathRecommender.setRecommendedPath([ token1.target, token0.target ], [ 500 ]);
+            swapPath = await vault.calculateSwapPath(true, [ token1.target, token0.target ], [ 500 ]);
+            await expect(vault.swapAndRemoveAsset(
+                1,
+                token0.target,
+                swapPath,
+                UINT64_MAX,
+                0
+            ))
+            .to.emit(vault, "AssetRemoved")
+            .withArgs(token1.target, anyValue);
+            expect(await vault.getNumberOfAssets()).to.equal(1n);
+            expect(await vault.assetType(token1.target)).to.equal(0n);
+        });
+
         it("Should not be able to remove non-existing asset", async function () {
             const { vault } = await helpers.loadFixture(deployTeaVaultV3Portfolio);
         
@@ -414,6 +457,67 @@ describe("TeaVaultV3Portfolio", function () {
             await expect(vault.connect(manager).removeAsset(1))
             .to.be.revertedWith("Ownable: caller is not the owner");
         });
+
+        it("Should not be able to remove asset with remaining balance", async function () {
+            const { vault, pathRecommender, token0, token1, manager, user } = await helpers.loadFixture(deployTeaVaultV3Portfolio);
+
+            const token0Decimals = await token0.decimals();
+            const shares = ethers.parseEther("1");
+            const tokens = ethers.parseUnits("1", token0Decimals);
+            await token0.connect(user).approve(vault.target, UINT256_MAX);                      
+            await vault.connect(user).deposit(shares);
+
+            // convert half of token0 to token1
+            await pathRecommender.setRecommendedPath([ token0.target, token1.target ], [ 500 ]);
+            let swapPath = await vault.calculateSwapPath(true, [ token0.target, token1.target ], [ 500 ]);
+            await vault.connect(manager).uniswapV3SwapViaSwapRouter(
+                true,
+                token0.target,
+                token1.target,
+                swapPath,
+                UINT64_MAX,
+                tokens / 2n,
+                0
+            );
+
+            await expect(vault.removeAsset(1))
+            .to.be.revertedWithCustomError(vault, "AssetBalanceNotZero");
+        });
+
+        it("Should not be able to swap and remove atomic asset from non-owner", async function () {
+            const { vault, pathRecommender, token0, token1, manager, user } = await helpers.loadFixture(deployTeaVaultV3Portfolio);
+
+            const token0Decimals = await token0.decimals();
+            const shares = ethers.parseEther("1");
+            const tokens = ethers.parseUnits("1", token0Decimals);
+            await token0.connect(user).approve(vault.target, UINT256_MAX);                      
+            await vault.connect(user).deposit(shares);
+
+            // convert half of token0 to token1
+            await pathRecommender.setRecommendedPath([ token0.target, token1.target ], [ 500 ]);
+            let swapPath = await vault.calculateSwapPath(true, [ token0.target, token1.target ], [ 500 ]);
+            await vault.connect(manager).uniswapV3SwapViaSwapRouter(
+                true,
+                token0.target,
+                token1.target,
+                swapPath,
+                UINT64_MAX,
+                tokens / 2n,
+                0
+            );
+        
+            // swap token1 to token0 and remove token1
+            await pathRecommender.setRecommendedPath([ token1.target, token0.target ], [ 500 ]);
+            swapPath = await vault.calculateSwapPath(true, [ token1.target, token0.target ], [ 500 ]);
+            await expect(vault.connect(user).swapAndRemoveAsset(
+                1,
+                token0.target,
+                swapPath,
+                UINT64_MAX,
+                0
+            ))
+            .to.be.revertedWith("Ownable: caller is not the owner");
+        });        
 
         it("Should be able to assign new manager", async function () {
             const { vault, user } = await helpers.loadFixture(deployTeaVaultV3Portfolio);
@@ -544,6 +648,63 @@ describe("TeaVaultV3Portfolio", function () {
             await expect(vault.connect(manager).setFeeConfig(feeConfig))
             .to.be.revertedWith("Ownable: caller is not the owner");
         });
+
+        it("Should be able to remove asset with remaining TeaVaultV3Pair shares", async function () {
+            const { vault, pathRecommender, v3pair, token0, token1, manager, user } = await helpers.loadFixture(deployTeaVaultV3PortfolioV3Pair);
+
+            const token0Decimals = await token0.decimals();
+            const shares = ethers.parseEther("1");
+            const tokens = ethers.parseUnits("1", token0Decimals);
+            await token0.connect(user).approve(vault.target, UINT256_MAX);                      
+            await vault.connect(user).deposit(shares);
+
+            // convert half of token0 to token1
+            await pathRecommender.setRecommendedPath([ token0.target, token1.target ], [ 500 ]);
+            const swapPath = await vault.calculateSwapPath(true, [ token0.target, token1.target ], [ 500 ]);
+            await vault.connect(manager).uniswapV3SwapViaSwapRouter(
+                true,
+                token0.target,
+                token1.target,
+                swapPath,
+                UINT64_MAX,
+                tokens / 2n,
+                0
+            );
+
+            // add liquidity
+            const v3pairShares = ethers.parseEther("0.5");
+            await vault.connect(manager).v3PairDeposit(v3pair.target, v3pairShares, UINT256_MAX, UINT256_MAX);
+
+            // remove asset
+            await expect(vault.removeAsset(2))
+            .to.emit(vault, "AssetRemoved")
+            .withArgs(v3pair.target, anyValue);            
+            expect(await vault.getNumberOfAssets()).to.equal(3n);
+            expect(await vault.assetType(v3pair.target)).to.equal(0n);
+            expect(await v3pair.balanceOf(vault.target)).to.equal(0n);
+        });
+
+        it("Should be able to remove asset with remaining AToken shares", async function () {
+            const { vault, token0, aToken0, manager, user } = await helpers.loadFixture(deployTeaVaultV3PortfolioV3Pair);
+
+            const token0Decimals = await token0.decimals();
+            const shares = ethers.parseEther("1");
+            const tokens = ethers.parseUnits("1", token0Decimals);
+            await token0.connect(user).approve(vault.target, UINT256_MAX);                      
+            await vault.connect(user).deposit(shares);
+
+            // deposit some ATokens
+            const aToken0Amount = ethers.parseUnits("0.1", token0Decimals);
+            await vault.connect(manager).aaveSupply(aToken0.target, aToken0Amount);
+
+            // remove asset
+            await expect(vault.removeAsset(3))
+            .to.emit(vault, "AssetRemoved")
+            .withArgs(aToken0.target, anyValue);
+            expect(await vault.getNumberOfAssets()).to.equal(3n);
+            expect(await vault.assetType(aToken0.target)).to.equal(0n);
+            expect(await aToken0.balanceOf(vault.target)).to.equal(0n);
+        });        
     });
 
     describe("User functions", function() {
