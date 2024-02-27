@@ -719,13 +719,17 @@ describe("TeaVaultV3Portfolio", function () {
             // precalculate required token amounts
             const depositAmounts = await vault.connect(user).deposit.staticCall(shares);
             expect(depositAmounts).to.eql([ tokens, 0n, 0n, 0n ]);
+
+            // check with previewDeposit
+            const previewDepositAmounts = await vault.previewDeposit(shares);
+            expect(depositAmounts).to.eql(previewDepositAmounts);
                         
             const tx = vault.connect(user).deposit(shares);
             await expect(tx).to.changeTokenBalance(vault, user.address, shares);
             await expect(tx).to.changeTokenBalance(token0, user.address, -tokens);
             await expect(tx).to.emit(vault, "Deposit")
             .withArgs(user.address, shares, [ tokens, 0n, 0n, 0n ], anyValue);
-
+            
             // deposit again
             const tx2 = vault.connect(user).deposit(shares);
             await expect(tx2).to.changeTokenBalance(vault, user.address, shares);
@@ -787,6 +791,10 @@ describe("TeaVaultV3Portfolio", function () {
             await token1.connect(user).approve(vault.target, UINT256_MAX);
             const depositAmounts = await vault.connect(user).deposit.staticCall(shares);
             expect(depositAmounts).to.eql([ 0n, token1Balance, 0n, 0n ]);
+
+            // check with previewDeposit
+            const previewDepositAmounts = await vault.previewDeposit(shares);
+            expect(depositAmounts).to.eql(previewDepositAmounts);
 
             // deposit again
             const tx = vault.connect(user).deposit(shares);
@@ -859,6 +867,10 @@ describe("TeaVaultV3Portfolio", function () {
             await token1.connect(user).approve(vault.target, UINT256_MAX);
             const depositAmounts = await vault.connect(user).deposit.staticCall(shares);
             expect(depositAmounts).to.eql([ token0Balance, token1Balance, 0n, 0n ]);
+
+            // check with previewDeposit
+            const previewDepositAmounts = await vault.previewDeposit(shares);
+            expect(depositAmounts).to.eql(previewDepositAmounts);
 
             // deposit again
             const tx = vault.connect(user).deposit(shares);
@@ -952,6 +964,10 @@ describe("TeaVaultV3Portfolio", function () {
             await aToken0.connect(user).approve(vault.target, UINT256_MAX);
             const depositAmounts = await vault.connect(user).deposit.staticCall(shares);
             expect(depositAmounts).to.eql([ token0Balance, token1Balance, v3pairBalance, aToken0Balance ]);
+
+            // check with previewDeposit
+            const previewDepositAmounts = await vault.previewDeposit(shares);
+            expect(depositAmounts).to.eql(previewDepositAmounts);
 
             // deposit again
             const tx = vault.connect(user).deposit(shares);

@@ -300,6 +300,54 @@ contract TeaVaultV3Portfolio is
     }
 
     /// @inheritdoc ITeaVaultV3Portfolio
+    function previewDeposit(
+        uint256 _shares
+    ) external override view checkShares(_shares) returns (
+        uint256[] memory depositedAmounts
+    ) {
+        uint256 totalShares = totalSupply();
+        ERC20Upgradeable[] memory _assets = assets;
+        FeeConfig memory _feeConfig = feeConfig;
+        depositedAmounts = new uint256[](_assets.length);
+        uint256 collectedShares = _previewManagementFee(totalShares, _feeConfig);
+        totalShares += collectedShares;
+
+        uint256[] memory totalAmounts = _calculateTotalAmounts(_assets);
+        uint256[] memory twaps = _getAssetsTwap(_assets);
+        uint256 totalValue = _calculateAssetsValue(_assets, totalAmounts, twaps);
+        (uint256 increasedReserve, uint256 decreasedReserve) = _previewPerformanceFee(totalShares, totalValue, _feeConfig);
+
+        totalShares = totalShares + increasedReserve - decreasedReserve;
+        uint256[] memory shareAmounts = _calculateShareAmounts(_assets, totalAmounts, _shares, totalShares, MathUpgradeable.Rounding.Up);
+
+        bool nonZeroAmount;
+        bool senderNotVault = msg.sender != _feeConfig.vault;
+        uint256 entryFeeAmount;
+        uint256 assetsLength = (totalShares == 0 ? 1 : _assets.length);
+        for (uint256 i; i < assetsLength; ) {
+            if (shareAmounts[i] > 0) {
+                nonZeroAmount = true;
+                
+                // collect entry fee for users
+                // do not collect entry fee for fee recipient
+                if (senderNotVault) {
+                    entryFeeAmount = shareAmounts[i].mulDiv(
+                        _feeConfig.entryFee,
+                        PERCENTAGE_MULTIPLIER,
+                        MathUpgradeable.Rounding.Up
+                    );
+                }
+
+                depositedAmounts[i] = shareAmounts[i] + entryFeeAmount;
+            }
+            unchecked { i = i + 1; }
+        }
+
+        // if shares is too low such that no assets is needed, do not mint
+        if (!nonZeroAmount) revert InvalidShareAmount();
+    }
+
+    /// @inheritdoc ITeaVaultV3Portfolio
     function deposit(
         uint256 _shares
     ) external override checkShares(_shares) nonReentrant returns (
@@ -316,7 +364,7 @@ contract TeaVaultV3Portfolio is
         _collectPerformanceFee(totalSupply(), totalValue, _feeConfig);
 
         uint256 totalShares = totalSupply();
-        uint256[] memory shareAmounts = _calculateShareAmounts(_assets, totalAmounts, _shares, totalSupply(), MathUpgradeable.Rounding.Up);
+        uint256[] memory shareAmounts = _calculateShareAmounts(_assets, totalAmounts, _shares, totalShares, MathUpgradeable.Rounding.Up);
         uint256 depositedValue = _calculateAssetsValue(_assets, shareAmounts, twaps);
         // initialize timestamp
         // will not reflect possible donations
@@ -418,10 +466,10 @@ contract TeaVaultV3Portfolio is
         return _collectManagementFee(totalSupply(), feeConfig);
     }
 
-    function _collectManagementFee(
+    function _previewManagementFee(
         uint256 _totalShares,
         FeeConfig memory _feeConfig
-    ) internal returns (
+    ) internal view returns (
         uint256 collectedShares
     ) {
         uint256 timeDiff = block.timestamp - lastCollectManagementFee;
@@ -435,14 +483,22 @@ contract TeaVaultV3Portfolio is
                 );
                 collectedShares = _totalShares.mulDiv(feeTimesTimediff, denominator, MathUpgradeable.Rounding.Up);
             }
-
-            if (collectedShares > 0) {
-                _mint(_feeConfig.vault, collectedShares);
-                emit ManagementFeeCollected(_feeConfig.vault, collectedShares, block.timestamp);
-            }
-
-            lastCollectManagementFee = block.timestamp;
         }
+    }
+
+    function _collectManagementFee(
+        uint256 _totalShares,
+        FeeConfig memory _feeConfig
+    ) internal returns (
+        uint256 collectedShares
+    ) {
+        collectedShares = _previewManagementFee(_totalShares, _feeConfig);
+        if (collectedShares > 0) {
+            _mint(_feeConfig.vault, collectedShares);
+            emit ManagementFeeCollected(_feeConfig.vault, collectedShares, block.timestamp);
+        }
+
+        lastCollectManagementFee = block.timestamp;
     }
 
     /// @inheritdoc ITeaVaultV3Portfolio
@@ -454,6 +510,41 @@ contract TeaVaultV3Portfolio is
             _calculateAssetsValue(_assets, _calculateTotalAmounts(_assets), _getAssetsTwap(_assets)),
             feeConfig
         );
+    }
+
+    function _previewPerformanceFee(
+        uint256 _totalShares,
+        uint256 _totalValue,
+        FeeConfig memory _feeConfig
+    ) internal view returns (
+        uint256 increasedReserve,
+        uint256 decreasedReserve
+    ) {
+        if (_totalShares != 0) {
+            if (_totalValue > highWaterMark) {
+                uint256 increasedReserveValue = (_totalValue - highWaterMark).mulDiv(
+                    _feeConfig.performanceFee,
+                    PERCENTAGE_MULTIPLIER,
+                    MathUpgradeable.Rounding.Up
+                );
+                increasedReserve = _totalShares.mulDiv(
+                    increasedReserveValue,
+                    _totalValue - increasedReserveValue,
+                    MathUpgradeable.Rounding.Up
+                );
+            }
+            else {
+                uint256 decreasedReserveValue = (highWaterMark - _totalValue).mulDiv(
+                    _feeConfig.performanceFee,
+                    PERCENTAGE_MULTIPLIER
+                );
+                decreasedReserve = _totalShares.mulDiv(
+                    decreasedReserveValue,
+                    _totalValue + decreasedReserveValue
+                );
+                decreasedReserve = MathUpgradeable.min(decreasedReserve, performanceFeeReserve);
+            }
+        }
     }
 
     function _collectPerformanceFee(
@@ -479,35 +570,16 @@ contract TeaVaultV3Portfolio is
             lastCollectPerformanceFee = block.timestamp; // AUDIT: TVV-02M
         }
 
-        if (_totalShares != 0) {
-            if (_totalValue > highWaterMark) {
-                uint256 increasedReserveValue = (_totalValue - highWaterMark).mulDiv(
-                    _feeConfig.performanceFee,
-                    PERCENTAGE_MULTIPLIER,
-                    MathUpgradeable.Rounding.Up
-                );
-                uint256 increasedReserve = _totalShares.mulDiv(
-                    increasedReserveValue,
-                    _totalValue - increasedReserveValue,
-                    MathUpgradeable.Rounding.Up
-                );
-                performanceFeeReserve = performanceFeeReserve + increasedReserve;
-                _mint(address(this), increasedReserve);
-                highWaterMark = _totalValue;
-            }
-            else {
-                uint256 decreasedReserveValue = (highWaterMark - _totalValue).mulDiv(
-                    _feeConfig.performanceFee,
-                    PERCENTAGE_MULTIPLIER
-                );
-                uint256 decreasedReserve = _totalShares.mulDiv(
-                    decreasedReserveValue,
-                    _totalValue + decreasedReserveValue
-                );
-                decreasedReserve = decreasedReserve > performanceFeeReserve ? performanceFeeReserve : decreasedReserve;
-                performanceFeeReserve = performanceFeeReserve - decreasedReserve;
-                _burn(address(this), decreasedReserve);
-            }
+        // adjust reserved performance fee according to _totalValue and highWaterMark
+        (uint256 increasedReserve, uint256 decreasedReserve) = _previewPerformanceFee(_totalShares, _totalValue, _feeConfig);
+        if (increasedReserve > 0) {
+            performanceFeeReserve = performanceFeeReserve + increasedReserve;
+            _mint(address(this), increasedReserve);
+            highWaterMark = _totalValue;
+        }
+        else if (decreasedReserve > 0) {
+            performanceFeeReserve = performanceFeeReserve - decreasedReserve;
+            _burn(address(this), decreasedReserve);
         }
     }
 

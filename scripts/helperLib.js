@@ -960,8 +960,6 @@ async function previewDepositV3PairUniV3(helper, vault, routerAddr, token, amoun
         estimatedComponents[i] = 0n;
     }
 
-    await getPriceFromUniV3Pool(pool, token, targetTokens[0]);
-
     let conversionData = [];
     if (vaultIsEmpty) {
         // convert all tokens to base token, if necessary

@@ -146,6 +146,11 @@ interface ITeaVaultV3Portfolio {
     /// @param _feeConfig Fee structure settings
     function setFeeConfig(FeeConfig calldata _feeConfig) external;
 
+    /// @notice Preview how much asset tokens required to mint shares
+    /// @param _shares Share amount to be minted
+    /// @return amounts Required asset amounts
+    function previewDeposit(uint256 _shares) external returns (uint256[] memory amounts);
+
     /// @notice Mint shares and deposit asset tokens
     /// @param _shares Share amount to be minted
     /// @return amounts Deposited asset amounts
