@@ -444,7 +444,7 @@ contract TeaVaultV3Portfolio is
         _collectPerformanceFee(totalSupply(), totalValue, _feeConfig);
 
         withdrawnAmounts = _calculateShareAmounts(_assets, totalAmounts, _shares, totalSupply(), MathUpgradeable.Rounding.Down);
-        uint256 withdrawnValue = _calculateAssetsValue(_assets, totalAmounts, twaps);
+        uint256 withdrawnValue = _calculateAssetsValue(_assets, withdrawnAmounts, twaps);
         _burn(msg.sender, _shares);
 
         // totalValue shouldn't be zero
