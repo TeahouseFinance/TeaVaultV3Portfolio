@@ -372,9 +372,13 @@ contract TeaVaultV3Portfolio is
             lastCollectPerformanceFee = block.timestamp;
         }
         // AUDIT: TVV-07M
-        highWaterMark = highWaterMark == 0 ? 
-            depositedValue :
-            highWaterMark.mulDiv(totalValue + depositedValue, totalValue);
+        // add checks for totalValue == 0 to make sure highWaterMark can be updated
+        if (highWaterMark == 0 || totalValue == 0) {
+            highWaterMark = depositedValue;
+        }
+        else {
+            highWaterMark = highWaterMark.mulDiv(totalValue + depositedValue, totalValue);
+        }
         // AUDIT: TVV-12C
         bool nonZeroAmount;
         bool senderNotVault = msg.sender != _feeConfig.vault;
