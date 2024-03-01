@@ -69,7 +69,7 @@ const assetTypes = loadEnvArr(process.env.ASSET_TYPES, "No ASSET TYPES");
 const aavePool = loadEnvVar(process.env.AAVE_POOL, "No AAVE_POOL");
 const uniswapV3SwapRouter = loadEnvVar(process.env.UNISWAP_V3_SWAP_ROUTER, "No UNISWAP_V3_SWAP_ROUTER");
 const pathRecommender = loadEnvVar(process.env.PATH_RECOMMENDER, "No PATH_RECOMMENDER");
-const assetOracle = loadEnvVar(process.env.ASSET_ORACLE, "No ASSET_ORACLE");
+const baseAssetOracle = loadEnvVar(process.env.BASE_ASSET_ORACLE, "No BASE_ASSET_ORACLE");
 const aaveATokenOracle = loadEnvVar(process.env.AAVE_A_TOKEN_ORACLE, "No AAVE_A_TOKEN_ORACLE");
 const teaVaultV3PairOracle = loadEnvVar(process.env.TEA_VAULT_V3_PAIT_ORACLE, "No TEA_VAULT_V3_PAIT_ORACLE");
 const swapper = loadEnvVar(process.env.SWAPPER, "No SWAPPER");
@@ -79,8 +79,15 @@ const owner = loadEnvVar(process.env.OWNER, "No OWNER");
 async function main() {
     // const [deployer] = await ethers.getSigners();
 
+    // deploy AssetsHelper
+    const AssetsHelper = await ethers.getContractFactory("AssetsHelper");
+    const assetsHelper = await AssetsHelper.deploy();
+    console.log("Lib AssetsHelper", assetsHelper.target);
+
     // deploy TeaVaultV3Portfolio
-    const TeaVaultV3Portfolio = await ethers.getContractFactory("TeaVaultV3Portfolio");
+    const TeaVaultV3Portfolio = await ethers.getContractFactory("TeaVaultV3Portfolio", {
+        libraries: { AssetsHelper: assetsHelper.target }
+    });
     const decayFactor = estimateDecayFactor((1n << 128n) * BigInt(decayPercentageOneYear) / (100n), 86400 * 360);
     const vault = await upgrades.deployProxy(
         TeaVaultV3Portfolio,
@@ -96,7 +103,7 @@ async function main() {
             aavePool,
             uniswapV3SwapRouter,
             pathRecommender,
-            assetOracle,
+            baseAssetOracle,
             aaveATokenOracle,
             teaVaultV3PairOracle,
             swapper,
@@ -104,6 +111,7 @@ async function main() {
         ],
         {
             kind: "uups",
+            unsafeAllowLinkedLibraries: true,
             unsafeAllow: ["delegatecall"],
         }
     );
