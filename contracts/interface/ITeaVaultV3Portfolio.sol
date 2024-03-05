@@ -26,6 +26,8 @@ interface ITeaVaultV3Portfolio {
     error CallerIsNotManager();
     error CallerIsNotManagerNorOwner();
     error InvalidShareAmount();
+    error InvalidArraySize();
+    error InsufficientMinAmount();
 
     event TeaVaultV3PortCreated(address indexed teaVaultAddress, string indexed name, string indexed symbol);
     event AssetAdded(address indexed asset, uint256 timestamp);
@@ -100,7 +102,9 @@ interface ITeaVaultV3Portfolio {
     /// @notice If asset is composite asset (TeaVaultV3Pair or AToken), it will withdraw all remaining balances before removing.
     /// @notice Only the owner can do this
     /// @param _index Asset index
-    function removeAsset(uint256 _index) external;
+    /// @param _minTokenAmounts minium token amounts required to be converted when a composite asset is withdrawn
+    /// @notice _minTokenAmounts[_index] is ignored
+    function removeAsset(uint256 _index, uint256[] calldata _minTokenAmounts) external;
 
     /// @notice Swap all tokens of an asset via UniswapV3 and remove asset
     /// @notice Only owner can do this

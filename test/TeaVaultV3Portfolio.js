@@ -392,7 +392,7 @@ describe("TeaVaultV3Portfolio", function () {
         it("Should be able to remove atomic asset", async function () {
             const { vault, token1 } = await helpers.loadFixture(deployTeaVaultV3Portfolio);
         
-            await expect(vault.removeAsset(1))
+            await expect(vault.removeAsset(1, [ 0, 0 ]))
             .to.emit(vault, "AssetRemoved")
             .withArgs(token1.target, anyValue);
             expect(await vault.getNumberOfAssets()).to.equal(1n);
@@ -440,21 +440,28 @@ describe("TeaVaultV3Portfolio", function () {
         it("Should not be able to remove non-existing asset", async function () {
             const { vault } = await helpers.loadFixture(deployTeaVaultV3Portfolio);
         
-            await expect(vault.removeAsset(2))
+            await expect(vault.removeAsset(2, [ 0, 0 ]))
             .to.be.revertedWithPanic(0x32);     // array out of bound
+        });
+        
+        it("Should not be able to remove asset with incorrect minimum token amount length", async function () {
+            const { vault } = await helpers.loadFixture(deployTeaVaultV3Portfolio);
+        
+            await expect(vault.removeAsset(2, [ 0, 0, 0 ]))
+            .to.be.revertedWithCustomError(vault, "InvalidArraySize");
         });
 
         it("Should not be able to remove base asset", async function () {
             const { vault } = await helpers.loadFixture(deployTeaVaultV3Portfolio);
         
-            await expect(vault.removeAsset(0))
+            await expect(vault.removeAsset(0, [ 0, 0 ]))
             .to.be.revertedWithCustomError(vault, "BaseAssetCannotBeRemoved");
         });
 
         it("Should not be able to remove asset from non-owner", async function () {
             const { vault, manager } = await helpers.loadFixture(deployTeaVaultV3Portfolio);
         
-            await expect(vault.connect(manager).removeAsset(1))
+            await expect(vault.connect(manager).removeAsset(1, [ 0, 0 ]))
             .to.be.revertedWith("Ownable: caller is not the owner");
         });
 
@@ -480,7 +487,7 @@ describe("TeaVaultV3Portfolio", function () {
                 0
             );
 
-            await expect(vault.removeAsset(1))
+            await expect(vault.removeAsset(1, [ 0, 0 ]))
             .to.be.revertedWithCustomError(vault, "AssetBalanceNotZero");
         });
 
@@ -676,7 +683,7 @@ describe("TeaVaultV3Portfolio", function () {
             await vault.connect(manager).v3PairDeposit(v3pair.target, v3pairShares, UINT256_MAX, UINT256_MAX);
 
             // remove asset
-            await expect(vault.removeAsset(2))
+            await expect(vault.removeAsset(2, [ 0, 0, 0, 0 ]))
             .to.emit(vault, "AssetRemoved")
             .withArgs(v3pair.target, anyValue);            
             expect(await vault.getNumberOfAssets()).to.equal(3n);
@@ -689,7 +696,6 @@ describe("TeaVaultV3Portfolio", function () {
 
             const token0Decimals = await token0.decimals();
             const shares = ethers.parseEther("1");
-            const tokens = ethers.parseUnits("1", token0Decimals);
             await token0.connect(user).approve(vault.target, UINT256_MAX);                      
             await vault.connect(user).deposit(shares);
 
@@ -698,13 +704,32 @@ describe("TeaVaultV3Portfolio", function () {
             await vault.connect(manager).aaveSupply(aToken0.target, aToken0Amount);
 
             // remove asset
-            await expect(vault.removeAsset(3))
+            const minAmount = ethers.parseUnits("0.1", token0Decimals);
+            await expect(vault.removeAsset(3, [ minAmount, 0, 0, 0 ]))
             .to.emit(vault, "AssetRemoved")
             .withArgs(aToken0.target, anyValue);
             expect(await vault.getNumberOfAssets()).to.equal(3n);
             expect(await vault.assetType(aToken0.target)).to.equal(0n);
             expect(await aToken0.balanceOf(vault.target)).to.equal(0n);
-        });        
+        });
+
+        it("Should not be able to remove asset if under minimum token amount", async function () {
+            const { vault, token0, aToken0, manager, user } = await helpers.loadFixture(deployTeaVaultV3PortfolioV3Pair);
+
+            const token0Decimals = await token0.decimals();
+            const shares = ethers.parseEther("1");
+            await token0.connect(user).approve(vault.target, UINT256_MAX);                      
+            await vault.connect(user).deposit(shares);
+
+            // deposit some ATokens
+            const aToken0Amount = ethers.parseUnits("0.1", token0Decimals);
+            await vault.connect(manager).aaveSupply(aToken0.target, aToken0Amount);
+
+            // remove asset
+            const minAmount = ethers.parseUnits("0.2", token0Decimals);
+            await expect(vault.removeAsset(3, [ minAmount, 0, 0, 0 ]))
+            .to.be.revertedWithCustomError(vault, "InsufficientMinAmount");
+        });           
     });
 
     describe("User functions", function() {

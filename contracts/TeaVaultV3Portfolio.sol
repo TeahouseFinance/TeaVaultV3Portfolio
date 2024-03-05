@@ -156,9 +156,14 @@ contract TeaVaultV3Portfolio is
     }
 
     /// @inheritdoc ITeaVaultV3Portfolio
-    function removeAsset(uint256 _index) external override nonReentrant onlyOwner {
+    function removeAsset(uint256 _index, uint256[] calldata _minTokenAmounts) external override nonReentrant onlyOwner {
+        uint256 assetsLength = assets.length;
+        if (_minTokenAmounts.length != assetsLength) revert InvalidArraySize();
+        ERC20Upgradeable[] memory _assets = assets;
+        uint256[] memory oldAmounts = _calculateTotalAmounts(_assets);
+
         ERC20Upgradeable _assetToken = assets[_index];
-        uint256 _balance = _assetToken.balanceOf(address(this));
+        uint256 _balance = oldAmounts[_index];
         if (_balance > 0) {
             // still has remaining balance, try to withdraw
             if (assetType[_assetToken] == AssetType.TeaVaultV3Pair) {
@@ -170,6 +175,13 @@ contract TeaVaultV3Portfolio is
                 address _underlyingToken = _aToken.UNDERLYING_ASSET_ADDRESS();
                 aavePool.withdraw(_underlyingToken, _balance, address(this));
             }
+        }
+
+        // check if tokens are more than minimum amounts
+        uint256[] memory newAmounts = _calculateTotalAmounts(_assets);
+        for (uint256 i; i < assetsLength; ) {
+            if (i != _index && newAmounts[i] - oldAmounts[i] < _minTokenAmounts[i] ) revert InsufficientMinAmount();
+            unchecked { i = i + 1; }
         }
 
         _removeAsset(_index);
@@ -291,11 +303,9 @@ contract TeaVaultV3Portfolio is
         uint256 assetsLength = _assets.length;
         totalAmounts = new uint256[](assetsLength);
 
-        if (totalSupply() != 0) {
-            for (uint256 i; i < assetsLength; ) {
-                totalAmounts[i] = _assets[i].balanceOf(address(this));
-                unchecked { i = i + 1; }
-            }
+        for (uint256 i; i < assetsLength; ) {
+            totalAmounts[i] = _assets[i].balanceOf(address(this));
+            unchecked { i = i + 1; }
         }
     }
 
@@ -378,7 +388,7 @@ contract TeaVaultV3Portfolio is
         }
         else {
             highWaterMark = highWaterMark.mulDiv(totalValue + depositedValue, totalValue);
-        }
+        }            
         // AUDIT: TVV-12C
         bool nonZeroAmount;
         bool senderNotVault = msg.sender != _feeConfig.vault;
