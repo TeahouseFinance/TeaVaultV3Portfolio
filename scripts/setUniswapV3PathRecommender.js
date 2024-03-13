@@ -4,9 +4,19 @@ const fs = require('fs');
 const rawConfig = fs.readFileSync("./scripts/config.json");
 const config = JSON.parse(rawConfig)["UniswapV3PathRecommender"];
 
+function loadEnvVar(env, errorMsg) {
+    if (env == undefined) {
+        throw errorMsg;
+    }
+
+    return env;
+}
+
+const pathRecommender = loadEnvVar(process.env.PATH_RECOMMENDER, "No PATH_RECOMMENDER");
+
 async function main() {
     const UniswapV3PathRecommender = await ethers.getContractFactory("UniswapV3PathRecommender");
-    const uniswapV3PathRecommender = UniswapV3PathRecommender.attach("0xF641059c53e272971199E01A748ca149bc86C46C");
+    const uniswapV3PathRecommender = UniswapV3PathRecommender.attach(pathRecommender);
     // const uniswapV3PathRecommender = await UniswapV3PathRecommender.deploy();
     // console.log("UniswapV3PathRecommender depolyed", uniswapV3PathRecommender.target);
 

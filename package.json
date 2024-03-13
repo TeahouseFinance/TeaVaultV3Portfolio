@@ -9,7 +9,7 @@
     "hardhat": "^2.17.1"
   },
   "dependencies": {
-    "@nomiclabs/hardhat-etherscan": "^3.1.7",
+    "@nomicfoundation/hardhat-verify": "^2.0.4",
     "@teahousefinance/teavaultv3pair": "^1.0.3",
     "@uniswap/v3-core": "github:Uniswap/v3-core#0.8",
     "@uniswap/v3-periphery": "github:Uniswap/v3-periphery#0.8",
