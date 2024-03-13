@@ -5,10 +5,13 @@ coverage.json
 typechain
 .openzeppelin
 
-#Hardhat files
+# Hardhat files
 cache
 artifacts
 cache_forge
 out
+
+# test files
+scripts/test.js
 
 **/.DS_Store
