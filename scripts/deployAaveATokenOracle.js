@@ -13,7 +13,7 @@ const baseAsset = loadEnvVar(process.env.BASE_ASSET, "No BASE_ASSET");
 const baseAssetOracle = loadEnvVar(process.env.BASE_ASSET_ORACLE, "No BASE_ASSET_ORACLE");
 
 async function main() {
-    const AaveATokenOracle = await ethers.getContractFactory("TeaVaultV3PairOracle");
+    const AaveATokenOracle = await ethers.getContractFactory("AaveATokenOracle");
     const aaveATokenOracle = await AaveATokenOracle.deploy(baseAsset, baseAssetOracle);
     console.log("AaveATokenOracle depolyed", aaveATokenOracle.target);
 }
