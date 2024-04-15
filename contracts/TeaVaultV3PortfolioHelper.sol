@@ -344,7 +344,7 @@ contract TeaVaultV3PortfolioHelper is ITeaVaultV3PortfolioHelper, Ownable {
         if (ITeaVaultV3PortfolioAssetType(vault).assetType(data.aTokenAddress) != ITeaVaultV3Portfolio.AssetType.AToken) revert InvalidAddress();
 
         ERC20Upgradeable(_asset).approve(address(aavePool), _amount);
-        aavePool.supply(_asset, _amount, address(this), 0);
+        aavePool.deposit(_asset, _amount, address(this), 0);
     }
 
     /// @inheritdoc ITeaVaultV3PortfolioHelper

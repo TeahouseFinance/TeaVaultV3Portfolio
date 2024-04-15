@@ -14,7 +14,7 @@ library AssetsHelper {
     function aaveSupply(IPool _aavePool, address _asset, uint256 _amount) external {
         address underlyingAsset = IAToken(_asset).UNDERLYING_ASSET_ADDRESS();
         ERC20Upgradeable(underlyingAsset).approve(address(_aavePool), _amount);
-        _aavePool.supply(underlyingAsset, _amount, address(this), 0);
+        _aavePool.deposit(underlyingAsset, _amount, address(this), 0);
     }
 
     function aaveWithdraw(

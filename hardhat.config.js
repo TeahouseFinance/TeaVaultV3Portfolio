@@ -87,6 +87,11 @@ module.exports = {
       accounts:
         process.env.PRIVATE_KEY !== undefined ? [process.env.PRIVATE_KEY] : [],
     },
+	local: {
+      url: 'http://127.0.0.1:8545/',
+      accounts:
+        process.env.PRIVATE_KEY !== undefined ? [process.env.PRIVATE_KEY] : [],
+    },
   },
   gasReporter: {
     enabled: process.env.REPORT_GAS !== undefined,
@@ -94,6 +99,24 @@ module.exports = {
   },
   etherscan: {
     apiKey: process.env.ETHERSCAN_API_KEY,
+    customChains: [
+        {
+            network: "boba",
+            chainId: 288,
+            urls: {
+                apiURL: "https://api.routescan.io/v2/network/mainnet/evm/288/etherscan",
+                browserURL: "https://boba.routescan.io"
+            }
+        },
+        {
+            network: "mantle",
+            chainId: 5000,
+            urls: {
+                apiURL: "https://api.routescan.io/v2/network/mainnet/evm/5000/etherscan",
+                browserURL: "https://mantlescan.info"
+            }
+        }
+    ]
   },
   mocha: {
     timeout: 100000000
